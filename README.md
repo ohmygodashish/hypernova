@@ -12,6 +12,8 @@ This is an unofficial community project. It is not affiliated with, endorsed by,
 
 The app only sends four commands: read settings, write a known setting, read battery, and read version. It verifies every write by reading the value back.
 
+Use the app in one tab or window at a time: two tabs, or the installed app and a tab, can both connect to the mouse and interleave their commands.
+
 ## Browser support
 
 Chromium desktop browsers: Chrome, Edge, Opera, Brave, and Arc. Firefox and Safari do not implement WebHID, so they cannot run this app.
