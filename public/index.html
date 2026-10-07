@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Hypernova Web Driver</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Hypernova Web Driver</h1>
+    <div id="device-bar">
+      <div class="bar">
+        <button id="connect" type="button" class="primary">Connect</button>
+        <dl class="info">
+          <div><dt>Connection</dt><dd id="connection">–</dd></div>
+          <div><dt>Firmware</dt><dd id="firmware">–</dd></div>
+          <div><dt>Battery</dt><dd id="battery">–</dd></div>
+        </dl>
+      </div>
+      <p id="status" role="status" aria-live="polite"><span id="status-text">Not connected</span> <a id="linux-help" href="https://github.com/ohmygodashish/hypernova#linux" hidden>Linux setup</a></p>
+    </div>
+  </header>
+
+  <p id="unsupported" class="notice" role="alert" hidden></p>
+
+  <main id="main">
+    <fieldset id="controls" disabled>
+      <ul id="warnings" class="warn-list"></ul>
+
+      <section class="card" aria-labelledby="h-dpi">
+        <h2 id="h-dpi">DPI</h2>
+        <label class="row"><span>Number of stages</span>
+          <select data-key="dpiStageCount"></select></label>
+        <fieldset id="stages" class="stages">
+          <legend>Stages (select the active one)</legend>
+        </fieldset>
+        <p id="active-warning" class="warn" hidden>The active DPI stage is outside the stage count.
+          <button id="use-stage-1" type="button">Use stage 1</button></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-performance">
+        <h2 id="h-performance">Performance</h2>
+        <label class="row"><span>Report rate</span>
+          <select data-key="reportRateHz"></select></label>
+      </section>
+
+      <section class="card" aria-labelledby="h-sensor">
+        <h2 id="h-sensor">Sensor</h2>
+        <label class="row"><span>Lift-off distance</span>
+          <select data-key="lodMm"></select></label>
+        <label class="row"><span>Sensor mode</span>
+          <select data-key="sensorMode"></select></label>
+        <label class="row"><span>Motion sync</span>
+          <input type="checkbox" data-key="motionSync"></label>
+        <label class="row"><span>Angle snapping</span>
+          <input type="checkbox" data-key="angleSnapping"></label>
+        <label class="row"><span>Ripple control</span>
+          <input type="checkbox" data-key="rippleControl"></label>
+        <label class="row"><span>Peak performance</span>
+          <input type="checkbox" data-key="peakPerformance"></label>
+        <label class="row"><span>Peak performance time</span>
+          <select data-key="peakPerformanceTime"></select></label>
+      </section>
+
+      <section class="card" aria-labelledby="h-buttons">
+        <h2 id="h-buttons">Buttons</h2>
+        <label class="row"><span>Debounce time</span>
+          <select data-key="debounceMs"></select></label>
+        <p id="debounce-warning" class="warn" hidden>Very low debounce can cause double clicks.</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-power">
+        <h2 id="h-power">Power</h2>
+        <label class="row"><span>Mouse sleep time</span>
+          <select data-key="sleepSeconds"></select></label>
+      </section>
+
+      <section class="card" aria-labelledby="h-backup">
+        <h2 id="h-backup">Backup</h2>
+        <div class="row">
+          <span>Save the current settings to a file</span>
+          <button id="export" type="button">Export settings</button>
+        </div>
+        <label class="row"><span>Restore settings from a file</span>
+          <input id="import-file" type="file" accept="application/json"></label>
+        <div id="import-panel" class="panel" hidden>
+          <h3>Changes to apply</h3>
+          <ul id="import-changes"></ul>
+          <div id="import-skipped-box" hidden>
+            <h3>Skipped</h3>
+            <ul id="import-skipped"></ul>
+          </div>
+          <div class="actions">
+            <button id="import-apply" type="button" class="primary">Apply</button>
+            <button id="import-cancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </section>
+    </fieldset>
+  </main>
+
+  <footer>
+    <p>Unofficial project. Not affiliated with Cosmic Byte.
+      <a href="https://github.com/ohmygodashish/hypernova" rel="noopener noreferrer">Source on GitHub</a></p>
+  </footer>
+
+  <template id="stage-template">
+    <div class="stage">
+      <label class="stage-name"><input type="radio" name="active-stage" data-key="dpiActiveStage"> <span></span></label>
+      <label class="field">DPI <input type="number" min="50" max="26000" step="50" inputmode="numeric"></label>
+      <span class="xy" title="X and Y DPI differ in the mouse. Editing sets both."></span>
+      <label class="field">Colour <input type="color"></label>
+    </div>
+  </template>
+</body>
+</html>
