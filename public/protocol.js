@@ -293,5 +293,9 @@ export function parseBackup(input, { connection }) {
     }
     setSetting(settings, key, kind === 'color' ? value.toLowerCase() : value);
   }
+  // Both are always present here: a missing key threw above, and neither is ever skipped.
+  if (settings.dpiActiveStage >= settings.dpiStageCount) {
+    throw new Error("The backup's active DPI stage is outside its stage count.");
+  }
   return { settings, skipped };
 }

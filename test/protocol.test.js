@@ -138,6 +138,23 @@ test('round trip: every field, every allowed value, check byte sums to 0x55', ()
   assert.deepEqual(decodeField('dpiStages.0.color', encodeField('dpiStages.0.color', '#FF8800')), { value: '#ff8800' });
 });
 
+test('every enum option encodes to its pinned raw code', () => {
+  // Written out by hand from the vendor app (spec 4.4), not derived from FIELDS.
+  const expected = {
+    reportRateHz: [[125, 0x08], [250, 0x04], [500, 0x02], [1000, 0x01], [2000, 0x10], [4000, 0x20], [8000, 0x40]],
+    sleepSeconds: [[10, 1], [30, 3], [60, 6], [300, 30], [600, 60], [900, 90], [1200, 120], [1500, 150], [1800, 180], [2100, 210], [2400, 240]],
+    peakPerformanceTime: [['30 s', 3], ['1 min', 6], ['2 min', 30], ['5 min', 60], ['10 min', 90], ['15 min', 120]],
+    lodMm: [[1, 1], [2, 2]],
+    sensorMode: [['LP', 0], ['HP', 1]],
+  };
+  const enums = FIELDS.filter((f) => f.kind === 'enum').map((f) => f.key);
+  assert.deepEqual(Object.keys(expected).sort(), enums.sort(), 'an enum field has no pinned table');
+  for (const [key, pairs] of Object.entries(expected)) {
+    assert.equal(FIELDS.find((f) => f.key === key).options.length, pairs.length, `${key}: option count`);
+    for (const [value, raw] of pairs) assert.equal(encodeField(key, value)[0], raw, `${key}=${value}`);
+  }
+});
+
 test('DPI codec matches captured values', () => {
   assert.deepEqual(encodeDpi(800), [0x0F, 0x0F, 0x00]);
   assert.deepEqual(encodeDpi(1600), [0x1F, 0x1F, 0x00]);
@@ -173,6 +190,24 @@ test('invalid packets and values are rejected', () => {
   assert.throws(() => encodeField('dpiStages.0.color', ['#123456']));
   assert.throws(() => encodeField('nope', 1), /unknown/i);
   assert.throws(() => encodeDpi(0));
+});
+
+test('WRITE is allowed for exactly the (address, size) pairs in FIELDS', () => {
+  const allowed = new Set(FIELDS.map((f) => `${f.addr}:${f.size}`));
+  let accepted = 0;
+  for (let addr = 0; addr <= 0x1FF; addr++) {
+    for (let len = 1; len <= 10; len++) {
+      const data = [...Array(len - 1).fill(0), 0x55]; // len bytes summing to 0x55: a valid check byte
+      const build = () => buildPayload(CMD.WRITE, addr, len, data);
+      if (allowed.has(`${addr}:${len}`)) {
+        build();
+        accepted += 1;
+      } else {
+        assert.throws(build, /No writable setting/, `address ${addr} size ${len}`);
+      }
+    }
+  }
+  assert.equal(accepted, FIELDS.length);
 });
 
 test('decodeField reports bad-check and unknown-value, and accepts read-only values', () => {
@@ -319,6 +354,18 @@ test('backup: toBackup refuses values that parseBackup would reject, accepts tho
   // read-only sensorMode is only skipped on import
   const corded = toBackup({ ...settings, sensorMode: 'Corded' }, { firmware: '2.17', connection: 'wireless', now: new Date() });
   assert.equal(corded.settings.sensorMode, 'Corded');
+});
+
+test('backup: an active stage outside the stage count is refused in both directions', () => {
+  const { settings } = decodeSettings(baseline);
+  const message = "The backup's active DPI stage is outside its stage count.";
+  const opts = { firmware: '2.17', connection: 'wireless', now: new Date() };
+  const consistent = { ...settings, dpiStageCount: 2, dpiActiveStage: 1 };
+  const outside = { ...settings, dpiStageCount: 2, dpiActiveStage: 2 };
+  assert.equal(parseBackup(toBackup(consistent, opts), opts).settings.dpiActiveStage, 1);
+  assert.throws(() => toBackup(outside, opts), { message: `Cannot back up: ${message}` });
+  const file = { ...toBackup(consistent, opts), settings: outside };
+  assert.throws(() => parseBackup(file, opts), { message });
 });
 
 test('backup: toBackup refuses unreadable settings', () => {
