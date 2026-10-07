@@ -22,11 +22,14 @@ class FakeDevice extends EventTarget {
   sent = []; // every payload passed to sendReport
   sentAt = []; // performance.now() of each
 
-  constructor(productId, { flash = baseline, dropFirst = 0, dropAll = false, ignoreWrites = false, noise = false } = {}) {
+  // dropFirst/dropAll: take the report but never reply. rejectFirst/rejectAll: sendReport itself fails.
+  constructor(productId, {
+    flash = baseline, dropFirst = 0, dropAll = false, rejectFirst = 0, rejectAll = false, ignoreWrites = false, noise = false,
+  } = {}) {
     super();
     this.productId = productId;
     this.flash = Uint8Array.from(flash);
-    Object.assign(this, { dropFirst, dropAll, ignoreWrites, noise });
+    Object.assign(this, { dropFirst, dropAll, rejectFirst, rejectAll, ignoreWrites, noise });
   }
 
   async open() { this.opened = true; }
@@ -37,6 +40,9 @@ class FakeDevice extends EventTarget {
     assert.equal(reportId, REPORT_ID);
     this.sent.push(Uint8Array.from(data));
     this.sentAt.push(performance.now());
+    if (this.rejectAll || this.sent.length <= this.rejectFirst) {
+      throw new DOMException('Failed to write the output report', 'NotAllowedError');
+    }
     if (this.dropAll || this.sent.length <= this.dropFirst) return;
     const [cmd, , hi, lo, len] = data;
     const addr = (hi << 8) | lo;
@@ -137,6 +143,42 @@ test('dropAll: readBattery times out after exactly 4 sends and the queue keeps w
   assert.deepEqual(await hn.readBattery(), { percent: 40, charging: false, millivolts: 3808 });
 });
 
+test('a rejected sendReport is retried like a timeout and counts toward the waiting event', async () => {
+  const once = await connect({ rejectFirst: 1 });
+  let waiting = 0;
+  once.hn.addEventListener('waiting', () => { waiting += 1; });
+  assert.equal(await once.hn.readVersion(), '2.17');
+  assert.equal(once.fake.sent.length, 2);
+  assert.equal(waiting, 0);
+
+  const twice = await connect({ rejectFirst: 2 });
+  twice.hn.addEventListener('waiting', () => { waiting += 1; });
+  assert.equal(await twice.hn.readVersion(), '2.17');
+  assert.equal(twice.fake.sent.length, 3);
+  assert.equal(waiting, 1);
+});
+
+test('sendReport that always rejects fails with a timeout carrying the cause, and the queue keeps working', async () => {
+  const { fake, hn } = await connect({ rejectAll: true });
+  const error = await errorOf(hn.readBattery(), 'timeout');
+  assert.equal(fake.sent.length, 4);
+  assert.equal(error.cause.name, 'NotAllowedError');
+  assert.match(error.message, /Failed to write the output report/);
+  fake.rejectAll = false;
+  assert.equal(await hn.readVersion(), '2.17');
+});
+
+test('a send that fails after close or unplug reports disconnected, not the send error', async () => {
+  const { fake, hn } = await connect();
+  let failSend;
+  fake.sendReport = () => new Promise((_, reject) => { failSend = reject; });
+  const pending = errorOf(hn.readBattery(), 'disconnected');
+  while (!failSend) await settle();
+  await hn.close();
+  failSend(new DOMException('The device was disconnected', 'NetworkError'));
+  await pending;
+});
+
 test('replies for another command or with a bad checksum are ignored', async () => {
   const { fake, hn } = await connect({ noise: true });
   assert.equal(await hn.readVersion(), '2.17');
@@ -188,6 +230,34 @@ test('reducing the stage count writes the active stage first (SAF-007)', async (
   assert.deepEqual(writes, [[active, 1], [count, 2]]);
   assert.equal(hn.settings.dpiActiveStage, 1);
   assert.equal(hn.settings.dpiStageCount, 2);
+});
+
+test('writes validate against the cache at run time, not at call time', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x04, 0x51], count);
+  flash.set([0x03, 0x52], active);
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+
+  // Not awaited in between: the second call is valid against the cache as it is now (count 4)
+  // but not once the first has run (count 2).
+  const first = hn.writeSetting('dpiStageCount', 2);
+  const second = errorOf(hn.writeSetting('dpiActiveStage', 3), 'invalid');
+  assert.equal(await first, 2);
+  await second;
+  assert.equal(fake.flash[count], 2);
+  assert.equal(fake.flash[active], 1);
+  assert.deepEqual([hn.settings.dpiStageCount, hn.settings.dpiActiveStage], [2, 1]);
+});
+
+test('public operations never interleave their commands', async () => {
+  const { fake, hn } = await connect();
+  const [result] = await Promise.all([hn.readSettings(), hn.readBattery(), hn.writeSetting('motionSync', false)]);
+  assert.deepEqual(result, decodeSettings(baseline));
+  assert.deepEqual(fake.sent.map((p) => p[0]), [
+    ...Array(20).fill(CMD.READ), CMD.BATTERY, CMD.WRITE, CMD.READ,
+  ]);
 });
 
 test('connection rules: 8000 Hz is cable only, sensor mode is dongle only', async () => {

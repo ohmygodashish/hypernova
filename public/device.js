@@ -34,7 +34,7 @@ export class Hypernova extends EventTarget {
   #timeoutMs;
   #attempts;
   #gapMs;
-  #tail = Promise.resolve(); // end of the command queue
+  #queue = Promise.resolve(); // end of the queue of public operations
   #waiter = null; // what the running command waits on: a reply, or the gap before it
   #lastEnd = -Infinity; // performance.now() when the previous command finished
   #closed = false;
@@ -89,25 +89,39 @@ export class Hypernova extends EventTarget {
   }
 
   async readSettings() {
-    const flash = new Uint8Array(SETTINGS_SIZE);
-    // ponytail: other commands may queue between chunks; the app drives one action at a time.
-    for (let addr = 0; addr < SETTINGS_SIZE; addr += READ_CHUNK) {
-      const len = Math.min(READ_CHUNK, SETTINGS_SIZE - addr);
-      const reply = await this.#command(CMD.READ, addr, len);
-      flash.set(reply.data.subarray(0, len), addr);
-    }
-    const result = decodeSettings(flash);
-    this.#flash = flash;
-    this.#settings = result.settings;
-    return result;
+    return this.#exclusive(async () => {
+      const flash = new Uint8Array(SETTINGS_SIZE);
+      for (let addr = 0; addr < SETTINGS_SIZE; addr += READ_CHUNK) {
+        const len = Math.min(READ_CHUNK, SETTINGS_SIZE - addr);
+        const reply = await this.#command(CMD.READ, addr, len);
+        flash.set(reply.data.subarray(0, len), addr);
+      }
+      const result = decodeSettings(flash);
+      this.#flash = flash;
+      this.#settings = result.settings;
+      return result;
+    });
   }
 
   async writeSetting(key, value) {
-    this.#alive();
+    return this.#exclusive(() => this.#write(key, value));
+  }
+
+  async readBattery() {
+    return this.#exclusive(async () => decodeBattery((await this.#command(CMD.BATTERY)).data));
+  }
+
+  async readVersion() {
+    return this.#exclusive(async () => decodeVersion((await this.#command(CMD.VERSION)).data));
+  }
+
+  // The body of writeSetting, without the lock so SAF-007's pre-write can call it from inside the lock.
+  // Validation reads the cache here, at run time, so it sees the effect of every operation queued before it.
+  async #write(key, value) {
     const bytes = this.#validate(key, value);
     // SAF-007: the active stage must stay inside the stage count.
     if (key === 'dpiStageCount' && this.#settings.dpiActiveStage >= value) {
-      await this.writeSetting('dpiActiveStage', value - 1);
+      await this.#write('dpiActiveStage', value - 1);
     }
 
     const { addr, size } = FIELDS.find((field) => field.key === key);
@@ -128,12 +142,16 @@ export class Hypernova extends EventTarget {
     return actual;
   }
 
-  async readBattery() {
-    return decodeBattery((await this.#command(CMD.BATTERY)).data);
-  }
-
-  async readVersion() {
-    return decodeVersion((await this.#command(CMD.VERSION)).data);
+  // Runs one public operation (any number of commands) with nothing else interleaved, in call order.
+  // A failed operation never blocks the ones behind it. After close or unplug, waiting operations
+  // fail on their turn, which comes right after the running one is released.
+  #exclusive(operation) {
+    const run = this.#queue.then(() => {
+      this.#alive();
+      return operation();
+    });
+    this.#queue = run.catch(() => {});
+    return run;
   }
 
   // Throws DeviceError('invalid') for anything the mouse should not be sent; returns the bytes to write.
@@ -160,14 +178,8 @@ export class Hypernova extends EventTarget {
     if (this.#closed) throw new DeviceError('disconnected', 'The mouse is disconnected');
   }
 
-  // Queue a command; resolves with its parsed reply. A rejected command never blocks the ones behind it.
-  #command(cmd, addr = 0, len = 0, data = []) {
-    const job = this.#tail.then(() => this.#run(cmd, addr, len, data));
-    this.#tail = job.catch(() => {});
-    return job;
-  }
-
-  async #run(cmd, addr, len, data) {
+  // Sends one command and resolves with its parsed reply. Only called from inside #exclusive, so never concurrently.
+  async #command(cmd, addr = 0, len = 0, data = []) {
     this.#alive();
     const payload = buildPayload(cmd, addr, len, data);
     try {
@@ -175,21 +187,32 @@ export class Hypernova extends EventTarget {
       const gap = this.#lastEnd + this.#gapMs - performance.now();
       if (gap > 0) await this.#expect(gap, () => false).done;
 
+      let sendError = null;
       for (let attempt = 1; attempt <= this.#attempts; attempt++) {
         this.#alive();
         // Listen before sending: the reply can arrive before sendReport resolves.
         const waiter = this.#expect(this.#timeoutMs, (reply) => reply.cmd === cmd && reply.addr === addr);
+        sendError = null;
         try {
           await this.device.sendReport(REPORT_ID, payload);
         } catch (error) {
+          // A failed send is a failed attempt, like a timeout. Pause the gap before the next one.
+          sendError = error;
           waiter.finish(null);
           this.#alive();
-          throw error;
+          await this.#expect(this.#gapMs, () => false).done;
         }
-        const reply = await waiter.done;
+        const reply = sendError ? null : await waiter.done;
         this.#alive();
         if (reply) return reply;
         if (attempt === 2) this.dispatchEvent(new Event('waiting'));
+      }
+      if (sendError) {
+        throw new DeviceError(
+          'timeout',
+          `Could not send to the mouse after ${this.#attempts} attempts: ${sendError.message}`,
+          { cause: sendError },
+        );
       }
       throw new DeviceError('timeout', `No reply from the mouse after ${this.#attempts} attempts`);
     } finally {
