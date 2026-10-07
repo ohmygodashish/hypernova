@@ -304,6 +304,23 @@ test('backup: wired export ignores a null sensorMode, wireless export does not',
   );
 });
 
+test('backup: toBackup refuses values that parseBackup would reject, accepts those it would skip', () => {
+  const { settings } = decodeSettings(baseline);
+  for (const connection of ['wired', 'wireless']) {
+    const opts = { firmware: '2.17', connection, now: new Date() };
+    const lod = { ...settings, lodMm: 0.7 };  // read-only LOD value the device can report
+    assert.throws(() => toBackup(lod, opts), /^Error: Cannot back up: .*lodMm/);
+    const tooHigh = structuredClone(settings);
+    tooHigh.dpiStages[0].dpi = 30000;         // decodes fine, cannot be written back
+    assert.throws(() => toBackup(tooHigh, opts), /^Error: Cannot back up: .*dpiStages\.0\.dpi/);
+    // 8000 Hz is a skip on import, not an error, so it stays exportable on both connections
+    assert.equal(toBackup({ ...settings, reportRateHz: 8000 }, opts).settings.reportRateHz, 8000);
+  }
+  // read-only sensorMode is only skipped on import
+  const corded = toBackup({ ...settings, sensorMode: 'Corded' }, { firmware: '2.17', connection: 'wireless', now: new Date() });
+  assert.equal(corded.settings.sensorMode, 'Corded');
+});
+
 test('backup: toBackup refuses unreadable settings', () => {
   const { settings } = decodeSettings(baseline);
   for (const key of ['lodMm', 'sensorMode']) {

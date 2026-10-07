@@ -239,7 +239,14 @@ export function toBackup(settings, { firmware, connection, now }) {
   if (mixed !== -1) throw new Error(`Stage ${mixed + 1} has different X and Y DPI. Set it in the app before exporting.`);
   const copy = structuredClone(settings);
   if (wired) delete copy.sensorMode;
-  return { format: BACKUP_FORMAT, version: 1, exportedAt: now.toISOString(), firmware, settings: copy };
+  const backup = { format: BACKUP_FORMAT, version: 1, exportedAt: now.toISOString(), firmware, settings: copy };
+  // Every exported file must import: run it through the import rules (e.g. read-only LOD 0.7, DPI above 26000).
+  try {
+    parseBackup(backup, { connection });
+  } catch (error) {
+    throw new Error(`Cannot back up: ${error.message}`);
+  }
+  return backup;
 }
 
 function skipReason(key, value, connection) {
