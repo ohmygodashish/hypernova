@@ -394,3 +394,8 @@ if (!isSecureContext || !('hid' in navigator)) {
   });
   connect(() => Hypernova.reconnect());
 }
+
+// Offline copy of the page. Registered after load so it never slows the first paint; a failure only costs the offline copy.
+addEventListener('load', () => {
+  navigator.serviceWorker?.register('sw.js').catch((error) => console.warn('Service worker not registered:', error));
+});
