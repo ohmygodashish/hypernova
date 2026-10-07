@@ -1,0 +1,397 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import {
+  REPORT_ID, CMD, SETTINGS_SIZE, FIELDS, checksum, decodeSettings,
+} from '../public/protocol.js';
+import { FILTERS, DeviceError, Hypernova } from '../public/device.js';
+
+const baseline = new Uint8Array(readFileSync(new URL('../snapshots/flash-baseline-2026-10-07.bin', import.meta.url)));
+const WIRED = 0xF5FA;
+const DONGLE = 0xF5FB;
+const hexBytes = (hex) => hex.trim().split(/\s+/).map((h) => parseInt(h, 16));
+const addrOf = (key) => FIELDS.find((field) => field.key === key).addr;
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+// ---- In-memory mouse: a 512-byte flash behind the same packet rules as the real one ----
+
+class FakeDevice extends EventTarget {
+  vendorId = 0x3554;
+  collections = [{ usagePage: 0xFF02 }];
+  opened = false;
+  sent = []; // every payload passed to sendReport
+  sentAt = []; // performance.now() of each
+
+  // dropFirst/dropAll: take the report but never reply. rejectFirst/rejectAll: sendReport itself fails.
+  // stale: a valid reply for the same command and address but another length arrives before the real one.
+  constructor(productId, {
+    flash = baseline, dropFirst = 0, dropAll = false, rejectFirst = 0, rejectAll = false, ignoreWrites = false, noise = false, stale = false,
+  } = {}) {
+    super();
+    this.productId = productId;
+    this.flash = Uint8Array.from(flash);
+    Object.assign(this, { dropFirst, dropAll, rejectFirst, rejectAll, ignoreWrites, noise, stale });
+  }
+
+  async open() { this.opened = true; }
+
+  async close() { this.opened = false; }
+
+  async sendReport(reportId, data) {
+    assert.equal(reportId, REPORT_ID);
+    this.sent.push(Uint8Array.from(data));
+    this.sentAt.push(performance.now());
+    if (this.rejectAll || this.sent.length <= this.rejectFirst) {
+      throw new DOMException('Failed to write the output report', 'NotAllowedError');
+    }
+    if (this.dropAll || this.sent.length <= this.dropFirst) return;
+    const [cmd, , hi, lo, len] = data;
+    const addr = (hi << 8) | lo;
+    if (this.noise) {
+      this.#emit(CMD.BATTERY, 0, 2, [0x28, 0x00, 0x0E, 0xE0]); // valid, but not the reply we want
+      this.#emit(cmd, addr, 2, [0x09, 0x09], true); // right command, corrupted
+    }
+    if (this.stale && (cmd === CMD.READ || cmd === CMD.WRITE)) this.#emit(cmd, addr, len + 1, Array(10).fill(0xEE));
+    switch (cmd) {
+      case CMD.READ:
+        return this.#emit(cmd, addr, len, this.flash.subarray(addr, addr + len));
+      case CMD.WRITE:
+        if (!this.ignoreWrites) this.flash.set(data.subarray(5, 5 + len), addr);
+        return this.#emit(cmd, addr, len, data.subarray(5, 5 + len));
+      case CMD.BATTERY:
+        return this.#emit(cmd, 0, 2, [0x28, 0x00, 0x0E, 0xE0]);
+      case CMD.VERSION:
+        return this.#emit(cmd, 0, 2, [0x02, 0x17]);
+      default:
+        throw new Error(`Fake mouse got command ${cmd}`);
+    }
+  }
+
+  #emit(cmd, addr, len, body, corrupt = false) {
+    const payload = new Uint8Array(16);
+    payload.set([cmd, 0, addr >> 8, addr & 0xFF, len, ...body]);
+    payload[15] = (checksum([REPORT_ID, ...payload.subarray(0, 15)]) + (corrupt ? 1 : 0)) & 0xFF;
+    queueMicrotask(() => this.dispatchEvent(
+      Object.assign(new Event('inputreport'), { reportId: REPORT_ID, data: new DataView(payload.buffer) }),
+    ));
+  }
+}
+
+class FakeHid extends EventTarget {
+  constructor(devices) {
+    super();
+    this.devices = devices;
+  }
+
+  async requestDevice(options) {
+    this.requested = options;
+    return [...this.devices];
+  }
+
+  async getDevices() { return [...this.devices]; }
+}
+
+async function connect({ pid = WIRED, gapMs = 0, ...options } = {}) {
+  const fake = new FakeDevice(pid, options);
+  const hid = new FakeHid([fake]);
+  const hn = new Hypernova(fake, { hid, timeoutMs: 20, gapMs });
+  await hn.open();
+  return { fake, hid, hn };
+}
+
+// Awaits a rejection, checks it is a DeviceError with this code, and returns it.
+async function errorOf(promise, code) {
+  const error = await promise.then(() => assert.fail('expected a rejection'), (e) => e);
+  assert.ok(error instanceof DeviceError, `expected a DeviceError, got ${error}`);
+  assert.equal(error.code, code, error.message);
+  return error;
+}
+
+// ---- Tests ----
+
+test('readSettings equals decodeSettings(baseline) and reads 0x00..0xBF in 20 READ commands', async () => {
+  const { fake, hn } = await connect();
+  assert.equal(hn.settings, null);
+  const result = await hn.readSettings();
+  assert.deepEqual(result, decodeSettings(baseline));
+  assert.deepEqual(hn.settings, result.settings);
+  assert.equal(fake.sent.length, 20);
+  const covered = fake.sent.flatMap((p) => {
+    assert.equal(p[0], CMD.READ);
+    const addr = (p[2] << 8) | p[3];
+    return Array.from({ length: p[4] }, (_, i) => addr + i);
+  });
+  assert.deepEqual(covered, Array.from({ length: SETTINGS_SIZE }, (_, i) => i));
+});
+
+test('a dropped command is resent and a single waiting event fires after the 2nd attempt', async () => {
+  const { fake, hn } = await connect({ dropFirst: 2 });
+  let waiting = 0;
+  hn.addEventListener('waiting', () => { waiting += 1; });
+  assert.equal(await hn.readVersion(), '2.17');
+  assert.equal(waiting, 1);
+  assert.equal(fake.sent.length, 3);
+});
+
+test('dropAll: readBattery times out after exactly 4 sends and the queue keeps working', async () => {
+  const { fake, hn } = await connect({ dropAll: true });
+  let waiting = 0;
+  hn.addEventListener('waiting', () => { waiting += 1; });
+  await errorOf(hn.readBattery(), 'timeout');
+  assert.equal(fake.sent.length, 4);
+  assert.equal(waiting, 1);
+  fake.dropAll = false;
+  assert.equal(await hn.readVersion(), '2.17');
+  assert.deepEqual(await hn.readBattery(), { percent: 40, charging: false, millivolts: 3808 });
+});
+
+test('a rejected sendReport is retried like a timeout and counts toward the waiting event', async () => {
+  const once = await connect({ rejectFirst: 1 });
+  let waiting = 0;
+  once.hn.addEventListener('waiting', () => { waiting += 1; });
+  assert.equal(await once.hn.readVersion(), '2.17');
+  assert.equal(once.fake.sent.length, 2);
+  assert.equal(waiting, 0);
+
+  const twice = await connect({ rejectFirst: 2 });
+  twice.hn.addEventListener('waiting', () => { waiting += 1; });
+  const start = performance.now();
+  assert.equal(await twice.hn.readVersion(), '2.17');
+  assert.equal(twice.fake.sent.length, 3);
+  assert.equal(waiting, 1);
+  // Each failed send waits out its 20 ms window; 5 ms slack for timer rounding.
+  assert.ok(performance.now() - start >= 2 * 20 - 5, 'retried without waiting out the timeout');
+});
+
+test('sendReport that always rejects fails with a timeout carrying the cause, and the queue keeps working', async () => {
+  const { fake, hn } = await connect({ rejectAll: true });
+  const start = performance.now();
+  const error = await errorOf(hn.readBattery(), 'timeout');
+  assert.equal(fake.sent.length, 4);
+  // Paced like timeouts: 4 attempts x 20 ms, checked as at least 3 x 20 ms less 5 ms slack.
+  assert.ok(performance.now() - start >= 3 * 20 - 5, 'gave up before the timeouts elapsed');
+  assert.equal(error.cause.name, 'NotAllowedError');
+  assert.match(error.message, /Failed to write the output report/);
+  fake.rejectAll = false;
+  assert.equal(await hn.readVersion(), '2.17');
+});
+
+test('a send that fails after close or unplug reports disconnected, not the send error', async () => {
+  const { fake, hn } = await connect();
+  let failSend;
+  fake.sendReport = () => new Promise((_, reject) => { failSend = reject; });
+  const pending = errorOf(hn.readBattery(), 'disconnected');
+  while (!failSend) await settle();
+  await hn.close();
+  failSend(new DOMException('The device was disconnected', 'NetworkError'));
+  await pending;
+});
+
+test('replies for another command or with a bad checksum are ignored', async () => {
+  const { fake, hn } = await connect({ noise: true });
+  assert.equal(await hn.readVersion(), '2.17');
+  assert.equal(fake.sent.length, 1);
+});
+
+test('a reply for the same command and address but another length is ignored', async () => {
+  const { fake, hn } = await connect({ stale: true });
+  assert.deepEqual(await hn.readSettings(), decodeSettings(baseline));
+  assert.equal(fake.sent.length, 20);
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('angleSnapping', true), true);
+  assert.equal(fake.sent.length, 2);
+});
+
+test('each command starts at least gapMs after the previous one finished', async () => {
+  const { fake, hn } = await connect({ gapMs: 30 });
+  await Promise.all([hn.readVersion(), hn.readBattery()]);
+  assert.equal(fake.sent.length, 2);
+  assert.ok(fake.sentAt[1] - fake.sentAt[0] >= 25, `only ${fake.sentAt[1] - fake.sentAt[0]} ms apart`); // 5 ms slack for timer rounding
+});
+
+test('writeSetting sends the captured packet, verifies with a READ, and returns the read-back value', async () => {
+  const { fake, hn } = await connect();
+  await hn.readSettings();
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('angleSnapping', true), true);
+  assert.deepEqual([...fake.sent[0]], hexBytes('08 07 00 00 AF 02 01 54 00 00 00 00 00 00 00 00 40').slice(1));
+  assert.deepEqual([...fake.sent[1].subarray(0, 5)], [CMD.READ, 0x00, 0x00, addrOf('angleSnapping'), 2]);
+  assert.equal(fake.sent.length, 2);
+  assert.equal(fake.flash[addrOf('angleSnapping')], 0x01);
+  assert.equal(hn.settings.angleSnapping, true);
+});
+
+test('a write the mouse ignores is retried once, then fails with the actual value', async () => {
+  const { fake, hn } = await connect({ ignoreWrites: true });
+  await hn.readSettings();
+  fake.sent.length = 0;
+  const error = await errorOf(hn.writeSetting('motionSync', false), 'verify');
+  assert.equal(error.actual, true);
+  assert.equal(fake.sent.filter((p) => p[0] === CMD.WRITE).length, 2);
+  assert.equal(fake.sent.filter((p) => p[0] === CMD.READ).length, 2);
+  assert.equal(hn.settings.motionSync, true);
+});
+
+test('reducing the stage count writes the active stage first (SAF-007)', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x04, 0x51], count); // 4 stages
+  flash.set([0x03, 0x52], active); // stage index 3 active
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  assert.equal(hn.settings.dpiStageCount, 4);
+  assert.equal(hn.settings.dpiActiveStage, 3);
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('dpiStageCount', 2), 2);
+  const writes = fake.sent.filter((p) => p[0] === CMD.WRITE).map((p) => [p[3], p[5]]);
+  assert.deepEqual(writes, [[active, 1], [count, 2]]);
+  assert.equal(hn.settings.dpiActiveStage, 1);
+  assert.equal(hn.settings.dpiStageCount, 2);
+});
+
+test('the active stage is read fresh before the stage count is lowered (SAF-007)', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x04, 0x51], count); // 4 stages, stage index 0 active when read
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  fake.flash.set([0x03, 0x52], active); // the mouse's DPI button moved it to index 3
+  assert.equal(hn.settings.dpiActiveStage, 0, 'the cache is stale');
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('dpiStageCount', 2), 2);
+  const writes = fake.sent.filter((p) => p[0] === CMD.WRITE).map((p) => [p[3], p[5]]);
+  assert.deepEqual(writes, [[active, 1], [count, 2]]);
+  assert.deepEqual([fake.flash[count], fake.flash[active]], [2, 1]);
+  assert.deepEqual([hn.settings.dpiStageCount, hn.settings.dpiActiveStage], [2, 1]);
+});
+
+test('raising the stage count past an inconsistent active stage fixes the active stage first (SAF-007)', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x02, 0x53], count); // 2 stages
+  flash.set([0x04, 0x51], active); // but stage index 4 active
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('dpiStageCount', 3), 3);
+  const writes = fake.sent.filter((p) => p[0] === CMD.WRITE).map((p) => [p[3], p[5]]);
+  assert.deepEqual(writes, [[active, 2], [count, 3]]);
+  assert.deepEqual([hn.settings.dpiStageCount, hn.settings.dpiActiveStage], [3, 2]);
+});
+
+test('an active stage cannot be chosen while the stage count is unreadable', async () => {
+  const flash = Uint8Array.from(baseline);
+  flash[addrOf('dpiStageCount') + 1] ^= 0xFF; // broken check byte
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  assert.equal(hn.settings.dpiStageCount, null);
+  fake.sent.length = 0;
+  const error = await errorOf(hn.writeSetting('dpiActiveStage', 0), 'invalid');
+  assert.equal(error.message, 'Set the DPI stage count first.');
+  assert.equal(fake.sent.length, 0);
+});
+
+test('writes validate against the cache at run time, not at call time', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x04, 0x51], count);
+  flash.set([0x03, 0x52], active);
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+
+  // Not awaited in between: the second call is valid against the cache as it is now (count 4)
+  // but not once the first has run (count 2).
+  const first = hn.writeSetting('dpiStageCount', 2);
+  const second = errorOf(hn.writeSetting('dpiActiveStage', 3), 'invalid');
+  assert.equal(await first, 2);
+  await second;
+  assert.equal(fake.flash[count], 2);
+  assert.equal(fake.flash[active], 1);
+  assert.deepEqual([hn.settings.dpiStageCount, hn.settings.dpiActiveStage], [2, 1]);
+});
+
+test('public operations never interleave their commands', async () => {
+  const { fake, hn } = await connect();
+  const [result] = await Promise.all([hn.readSettings(), hn.readBattery(), hn.writeSetting('motionSync', false)]);
+  assert.deepEqual(result, decodeSettings(baseline));
+  assert.deepEqual(fake.sent.map((p) => p[0]), [
+    ...Array(20).fill(CMD.READ), CMD.BATTERY, CMD.WRITE, CMD.READ,
+  ]);
+});
+
+test('connection rules: 8000 Hz is cable only, sensor mode is dongle only', async () => {
+  const dongle = await connect({ pid: DONGLE });
+  assert.equal(dongle.hn.connection, 'wireless');
+  await dongle.hn.readSettings();
+  dongle.fake.sent.length = 0;
+  await errorOf(dongle.hn.writeSetting('reportRateHz', 8000), 'invalid');
+  assert.equal(dongle.fake.sent.length, 0);
+
+  const cable = await connect();
+  assert.equal(cable.hn.connection, 'wired');
+  await cable.hn.readSettings();
+  cable.fake.sent.length = 0;
+  await errorOf(cable.hn.writeSetting('sensorMode', 'HP'), 'invalid');
+  assert.equal(cable.fake.sent.length, 0);
+  assert.equal(await cable.hn.writeSetting('reportRateHz', 8000), 8000);
+});
+
+test('invalid writes are rejected before anything is sent', async () => {
+  const { fake, hn } = await connect({ pid: DONGLE });
+  await errorOf(hn.writeSetting('angleSnapping', true), 'invalid'); // settings never read
+  await hn.readSettings();
+  fake.sent.length = 0;
+  await errorOf(hn.writeSetting('dpiActiveStage', hn.settings.dpiStageCount), 'invalid'); // beyond the stage count
+  await errorOf(hn.writeSetting('reportRateHz', 123), 'invalid'); // not an allowed value
+  await errorOf(hn.writeSetting('nonsense', 1), 'invalid'); // unknown setting
+  assert.equal(fake.sent.length, 0);
+});
+
+test('disconnect rejects the in-flight and queued commands and fires disconnect', async () => {
+  const { fake, hid, hn } = await connect({ dropAll: true });
+  let disconnects = 0;
+  hn.addEventListener('disconnect', () => { disconnects += 1; });
+  const inFlight = errorOf(hn.readBattery(), 'disconnected');
+  const queued = errorOf(hn.readVersion(), 'disconnected');
+  while (!fake.sent.length) await settle();
+
+  hid.dispatchEvent(Object.assign(new Event('disconnect'), { device: new FakeDevice(WIRED) }));
+  assert.equal(disconnects, 0, 'another device unplugged');
+
+  hid.dispatchEvent(Object.assign(new Event('disconnect'), { device: fake }));
+  await Promise.all([inFlight, queued]);
+  assert.equal(disconnects, 1);
+  assert.equal(fake.sent.length, 1, 'the queued command never reached the mouse');
+  await errorOf(hn.readVersion(), 'disconnected');
+});
+
+test('close rejects the in-flight command and closes the device', async () => {
+  const { fake, hn } = await connect({ dropAll: true });
+  let disconnects = 0;
+  hn.addEventListener('disconnect', () => { disconnects += 1; });
+  const inFlight = errorOf(hn.readBattery(), 'disconnected');
+  while (!fake.sent.length) await settle();
+  await hn.close();
+  await inFlight;
+  assert.equal(fake.opened, false);
+  assert.equal(disconnects, 1);
+  await errorOf(hn.writeSetting('angleSnapping', true), 'disconnected');
+});
+
+test('reconnect prefers the cable, ignores other devices, and returns null with none', async () => {
+  const wired = new FakeDevice(WIRED);
+  const dongle = new FakeDevice(DONGLE);
+  const other = new FakeDevice(0x1234);
+
+  const both = await Hypernova.reconnect(new FakeHid([other, dongle, wired]));
+  assert.equal(both.device, wired);
+  assert.equal(wired.opened, true);
+  assert.equal((await Hypernova.reconnect(new FakeHid([dongle]))).device, dongle);
+  assert.equal(await Hypernova.reconnect(new FakeHid([other])), null);
+  assert.equal(await Hypernova.reconnect(new FakeHid([])), null);
+
+  const hid = new FakeHid([dongle]);
+  assert.equal((await Hypernova.request(hid)).device, dongle);
+  assert.deepEqual(hid.requested, { filters: FILTERS });
+  assert.equal(await Hypernova.request(new FakeHid([])), null);
+});
