@@ -230,10 +230,15 @@ export function diffSettings(a, b) {
 const BACKUP_FORMAT = 'hypernova-settings';
 
 export function toBackup(settings, { firmware, connection, now }) {
-  const unreadable = FIELDS.map((field) => field.key).filter((key) => getSetting(settings, key) == null);
+  const wired = connection === 'wired'; // sensorMode is not exported over the cable, so its value is irrelevant
+  const unreadable = FIELDS.map((field) => field.key)
+    .filter((key) => !(wired && key === 'sensorMode') && getSetting(settings, key) == null);
   if (unreadable.length) throw new Error(`Cannot back up unreadable settings: ${unreadable.join(', ')}`);
+  // parseBackup only accepts a single DPI number per stage, so a decoded { x, y } would not import back.
+  const mixed = settings.dpiStages.findIndex(({ dpi }) => typeof dpi !== 'number');
+  if (mixed !== -1) throw new Error(`Stage ${mixed + 1} has different X and Y DPI. Set it in the app before exporting.`);
   const copy = structuredClone(settings);
-  if (connection === 'wired') delete copy.sensorMode;
+  if (wired) delete copy.sensorMode;
   return { format: BACKUP_FORMAT, version: 1, exportedAt: now.toISOString(), firmware, settings: copy };
 }
 

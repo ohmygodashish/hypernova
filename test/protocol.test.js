@@ -276,6 +276,34 @@ test('backup: invalid files are rejected', () => {
   assert.throws(() => parseBackup('null', { connection: 'wireless' }));
 });
 
+test('backup: toBackup refuses a stage with different X and Y DPI', () => {
+  const { settings } = decodeSettings(baseline);
+  const mixed = structuredClone(settings);
+  mixed.dpiStages[2].dpi = { x: 800, y: 1600 };
+  for (const connection of ['wired', 'wireless']) {
+    assert.throws(
+      () => toBackup(mixed, { firmware: '2.17', connection, now: new Date() }),
+      { message: 'Stage 3 has different X and Y DPI. Set it in the app before exporting.' },
+    );
+  }
+});
+
+test('backup: wired export ignores a null sensorMode, wireless export does not', () => {
+  const { settings } = decodeSettings(baseline);
+  const unknownSensor = { ...settings, sensorMode: null };
+  const wired = toBackup(unknownSensor, { firmware: '2.17', connection: 'wired', now: new Date() });
+  assert.ok(!('sensorMode' in wired.settings));
+  assert.deepEqual(parseBackup(wired, { connection: 'wired' }).skipped, []);
+  assert.throws(
+    () => toBackup(unknownSensor, { firmware: '2.17', connection: 'wireless', now: new Date() }),
+    /sensorMode/,
+  );
+  assert.throws(
+    () => toBackup({ ...unknownSensor, lodMm: null }, { firmware: '2.17', connection: 'wired', now: new Date() }),
+    /lodMm/,
+  );
+});
+
 test('backup: toBackup refuses unreadable settings', () => {
   const { settings } = decodeSettings(baseline);
   for (const key of ['lodMm', 'sensorMode']) {
