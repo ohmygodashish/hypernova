@@ -208,7 +208,8 @@ async function connect(open) {
 async function start(dev) {
   device = dev;
   dev.addEventListener('waiting', () => { if (dev === device) setStatus(WAITING); });
-  dev.addEventListener('disconnect', () => { if (dev === device) detach('Disconnected'); });
+  // The mouse has no USB serial number, so Chrome forgets the permission on unplug: a replug needs a Connect click.
+  dev.addEventListener('disconnect', () => { if (dev === device) detach('Disconnected. Plug the mouse back in, then click Connect.'); });
   setStatus('Connecting…');
   try {
     ({ errors } = await dev.readSettings());

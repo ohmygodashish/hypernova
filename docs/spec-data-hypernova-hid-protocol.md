@@ -97,6 +97,8 @@ Rules every client must follow.
 | Product ID, cable | `0xF5FA` | LIVE |
 | Product ID, 4K dongle | `0xF5FB` | LIVE |
 | Product ID, 1K dongle | none configured in the vendor program (`Wireless_PID` empty) | STATIC |
+| Product string | `CBHypernova` | LIVE (4K dongle) |
+| Serial number | none: `HidD_GetSerialNumberString` fails and Windows generates the USB instance ID. Browsers therefore cannot remember a WebHID/WebUSB permission across a replug | LIVE (4K dongle; cable not checked) |
 | Sensor | PixArt PAW3395 | STATIC |
 | Mouse MCU | Nordic nRF52833 | STATIC |
 | Dongle MCU | CX52650N (1K), WCH CH32V305 (4K) | STATIC |

@@ -71,7 +71,7 @@ The Hypernova Web Driver is a static web application that reads and changes the 
 ### Functional requirements
 
 - **REQ-001**: The app shall request device access with `navigator.hid.requestDevice` using exactly the filters in section 4.2, triggered only by a user click on a "Connect" button.
-- **REQ-002**: On page load the app shall call `navigator.hid.getDevices()` and connect automatically to a previously granted matching device. It shall handle `navigator.hid` `connect` and `disconnect` events.
+- **REQ-002**: On page load the app shall call `navigator.hid.getDevices()` and connect automatically to a previously granted matching device. It shall handle `navigator.hid` `connect` and `disconnect` events. Limit: the mouse reports no USB serial number (protocol spec 4.1), so Chrome grants only a session permission that ends when the device is unplugged. After a replug or a browser restart the page cannot see the mouse until the user clicks Connect; the disconnect status says so.
 - **REQ-003**: After connecting, the app shall read flash `0x00`-`0xBF` (20 reads of 10 bytes, the last read 2 bytes), the battery level (cmd `0x04`), and the firmware version (cmd `0x12`).
 - **REQ-004**: The app shall display every in-scope setting decoded into human units (Hz, DPI, mm, ms, seconds, on/off, LP/HP).
 - **REQ-005**: When the user changes a setting, the app shall write only the field(s) for that setting, then read them back and display the value read back from the device (see SAF-006).
@@ -490,7 +490,8 @@ Edge cases:
 |---|---|
 | Mouse asleep / first command dropped | Retry per SAF-005. Status shows "Waiting for mouse... move it to wake it" after the 2nd attempt. |
 | Mouse switched off, dongle present | Fail after 4 attempts with a clear error. Controls keep last read values. |
-| Device unplugged mid-write | `disconnect` event → status "Disconnected", controls disabled, queue rejected. |
+| Device unplugged mid-write | `disconnect` event → status "Disconnected. Plug the mouse back in, then click Connect.", controls disabled, queue rejected. |
+| Device replugged | No `connect` event reaches the page (no serial number, see REQ-002). The user clicks Connect. |
 | Raw value not in option table (e.g. report rate `0x40`) | Display `Unknown (0x40)` (REQ-014). Do not write until the user chooses a valid option. |
 | Check byte invalid on read | Warning naming the field (SAF-008). Value shown as `Invalid`. |
 | DPI X ≠ Y in flash | Display "X / Y". Editing writes the same value to both. |
