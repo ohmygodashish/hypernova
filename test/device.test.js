@@ -20,6 +20,7 @@ class FakeDevice extends EventTarget {
   collections = [{ usagePage: 0xFF02 }];
   opened = false;
   sent = []; // every payload passed to sendReport
+  sentAt = []; // performance.now() of each
 
   constructor(productId, { flash = baseline, dropFirst = 0, dropAll = false, ignoreWrites = false, noise = false } = {}) {
     super();
@@ -35,6 +36,7 @@ class FakeDevice extends EventTarget {
   async sendReport(reportId, data) {
     assert.equal(reportId, REPORT_ID);
     this.sent.push(Uint8Array.from(data));
+    this.sentAt.push(performance.now());
     if (this.dropAll || this.sent.length <= this.dropFirst) return;
     const [cmd, , hi, lo, len] = data;
     const addr = (hi << 8) | lo;
@@ -81,10 +83,10 @@ class FakeHid extends EventTarget {
   async getDevices() { return [...this.devices]; }
 }
 
-async function connect({ pid = WIRED, ...options } = {}) {
+async function connect({ pid = WIRED, gapMs = 0, ...options } = {}) {
   const fake = new FakeDevice(pid, options);
   const hid = new FakeHid([fake]);
-  const hn = new Hypernova(fake, { hid, timeoutMs: 20, gapMs: 0 });
+  const hn = new Hypernova(fake, { hid, timeoutMs: 20, gapMs });
   await hn.open();
   return { fake, hid, hn };
 }
@@ -139,6 +141,13 @@ test('replies for another command or with a bad checksum are ignored', async () 
   const { fake, hn } = await connect({ noise: true });
   assert.equal(await hn.readVersion(), '2.17');
   assert.equal(fake.sent.length, 1);
+});
+
+test('each command starts at least gapMs after the previous one finished', async () => {
+  const { fake, hn } = await connect({ gapMs: 30 });
+  await Promise.all([hn.readVersion(), hn.readBattery()]);
+  assert.equal(fake.sent.length, 2);
+  assert.ok(fake.sentAt[1] - fake.sentAt[0] >= 25, `only ${fake.sentAt[1] - fake.sentAt[0]} ms apart`); // 5 ms slack for timer rounding
 });
 
 test('writeSetting sends the captured packet, verifies with a READ, and returns the read-back value', async () => {
