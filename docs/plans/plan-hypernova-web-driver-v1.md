@@ -420,7 +420,11 @@ Required cases:
      - Otherwise list `diffSettings(current, merged)` (merged = current settings overlaid with parsed settings) using human labels, plus skipped keys with reasons.
      - "Apply" writes each differing key **sequentially in FIELDS order** via `writeSetting`, then re-reads settings and reports the result (REQ-010).
 8. **Labels:** human labels for every key live in one `LABELS` map in `app.js` (e.g. `reportRateHz` → "Report rate", `dpiStages.2.color` → "Stage 3 colour").
-9. **Styling (`style.css`):**
+9. **Edge cases (spec section 9):**
+    - **Active stage outside the stage count:** when `dpiActiveStage >= dpiStageCount` after a read, show the warning "The active DPI stage is outside the stage count." and a "Use stage 1" button that writes `dpiActiveStage` = 0.
+    - **Valid value not offered on this connection** (report rate 8000 Hz read over the dongle): show it as a selected, disabled option "8000 Hz (cable only)". Write nothing until the user picks an offered option.
+    - **Open failure:** if `Hypernova.request()`/`reconnect()` throws while opening the device (e.g. Linux without the udev rule), show the status "Could not open the mouse. On Linux, install the udev rule (see README)." with a link to `https://github.com/ohmygodashish/hypernova#linux`.
+10. **Styling (`style.css`):**
    - light and dark themes via `prefers-color-scheme` with CSS custom properties
    - readable at 360 px width without horizontal scrolling
    - visible focus outlines
