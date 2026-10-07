@@ -39,8 +39,9 @@ let device = null; // the connected Hypernova, or null
 let firmware = '';
 let errors = []; // unreadable fields from the last readSettings
 let connecting = false;
+let replugged = false; // a mouse showed up while a connect attempt was under way
 let pollTimer = null;
-let plan = null; // an import waiting for confirmation: { keys, parsed }
+let plan = null; // an import waiting for confirmation: { keys, parsed, skipped }
 const pending = new Set(); // controls with a write in flight
 
 // ---- Controls ----
@@ -186,7 +187,7 @@ async function connect(open) {
         // Picking another device (or the same one again): let go of the old instance first, then reopen.
         const old = device;
         detach('Connecting…');
-        await old.close();
+        await old.close().catch((error) => console.warn('Could not close the previous mouse:', error)); // not fatal
         await next.open();
       }
     } catch (error) {
@@ -197,6 +198,10 @@ async function connect(open) {
     if (next) await start(next);
   } finally {
     connecting = false;
+    // On Windows one plug-in fires a connect event per collection, so one may arrive mid-attempt.
+    const again = replugged;
+    replugged = false;
+    if (again && !device) connect(() => Hypernova.reconnect());
   }
 }
 
@@ -317,7 +322,24 @@ $('export').addEventListener('click', () => {
   }
 });
 
+// The settings an import would change, in FIELDS order. parsed holds only the keys it accepted.
+const changesFor = (current, parsed) => diffSettings(current, { ...current, ...parsed });
+
+// Opens the review panel for `plan`: what applying it would change in the mouse's current settings.
+function showPlan(current) {
+  const { keys, parsed, skipped } = plan;
+  $('import-changes').replaceChildren(...(keys.length
+    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} → ${show(key, getSetting(parsed, key))}`))
+    : [li('No differences from the current settings.')]));
+  $('import-skipped').replaceChildren(...skipped.map(({ key, reason }) => li(`${LABELS[key]}: ${reason}`)));
+  $('import-skipped-box').hidden = !skipped.length;
+  $('import-apply').disabled = !keys.length;
+  $('import-panel').hidden = false;
+}
+
 $('import-file').addEventListener('change', async (event) => {
+  plan = null; // a new file replaces the pending one, even if it turns out to be unusable
+  $('import-panel').hidden = true;
   const [file] = event.target.files;
   event.target.value = ''; // so the same file can be chosen again
   if (!file || !device) return;
@@ -325,16 +347,9 @@ $('import-file').addEventListener('change', async (event) => {
   try {
     const { settings: parsed, skipped } = parseBackup(await file.text(), { connection: dev.connection });
     const current = dev.settings;
-    const keys = diffSettings(current, { ...current, ...parsed }); // parsed holds only accepted keys
     if (dev !== device) return;
-    plan = { keys, parsed };
-    $('import-changes').replaceChildren(...(keys.length
-      ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} → ${show(key, getSetting(parsed, key))}`))
-      : [li('No differences from the current settings.')]));
-    $('import-skipped').replaceChildren(...skipped.map(({ key, reason }) => li(`${LABELS[key]}: ${reason}`)));
-    $('import-skipped-box').hidden = !skipped.length;
-    $('import-apply').disabled = !keys.length;
-    $('import-panel').hidden = false;
+    plan = { keys: changesFor(current, parsed), parsed, skipped };
+    showPlan(current);
     setStatus('Review the changes, then apply or cancel.');
   } catch (error) {
     setStatus(`Import failed: ${error.message}`); // nothing was written
@@ -347,12 +362,8 @@ $('import-cancel').addEventListener('click', () => {
   setStatus('Import cancelled');
 });
 
-$('import-apply').addEventListener('click', async () => {
-  const dev = device;
-  const { keys, parsed } = plan;
-  plan = null;
-  $('import-panel').hidden = true;
-  controls.disabled = true;
+// Writes the keys, re-reads the mouse and returns the status to show. Never throws.
+async function restore(dev, keys, parsed) {
   let problem = null;
   for (const [i, key] of keys.entries()) { // FIELDS order, so the stage count lands before the active stage
     setStatus(`Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}…`);
@@ -368,10 +379,44 @@ $('import-apply').addEventListener('click', async () => {
   } catch (error) {
     problem ??= error.message;
   }
+  if (problem) return problem;
+  const differ = changesFor(dev.settings, parsed).filter((key) => keys.includes(key));
+  if (differ.length) {
+    const [done, left] = [keys.length - differ.length, differ.length];
+    return `Restored ${done} setting${done === 1 ? '' : 's'}, but ${left} still ${left === 1 ? 'differs' : 'differ'}: ${differ.map((key) => LABELS[key]).join(', ')}.`;
+  }
+  return `Restored ${keys.length} setting${keys.length === 1 ? '' : 's'}.`;
+}
+
+$('import-apply').addEventListener('click', async () => {
+  const dev = device;
+  const { keys, parsed, skipped } = plan;
+  plan = null;
+  $('import-panel').hidden = true;
+  $('connect').disabled = true; // choosing another mouse would abort the restore
+  controls.disabled = true;
+  let message;
+  try {
+    // The mouse can change while the file is under review (its own DPI button), so check the preview against it now.
+    ({ errors } = await dev.readSettings());
+    if (dev !== device) return;
+    const now = changesFor(dev.settings, parsed);
+    if (now.join() === keys.join()) {
+      message = await restore(dev, keys, parsed);
+    } else {
+      plan = { keys: now, parsed, skipped };
+      showPlan(dev.settings);
+      message = 'The mouse changed since you opened the file. Review the updated changes and apply again.';
+    }
+  } catch (error) {
+    message = error.message;
+  } finally {
+    $('connect').disabled = false;
+  }
   if (dev !== device) return;
   controls.disabled = false;
   render();
-  setStatus(problem ?? `Restored ${keys.length} setting${keys.length === 1 ? '' : 's'}.`);
+  setStatus(message);
 });
 
 // ---- Start ----
@@ -387,7 +432,9 @@ if (!isSecureContext || !('hid' in navigator)) {
   render(); // fills the selects before the first connection
   $('connect').addEventListener('click', () => connect(() => Hypernova.request()));
   navigator.hid.addEventListener('connect', () => {
-    if (!device) connect(() => Hypernova.reconnect());
+    if (device) return;
+    if (connecting) replugged = true; // connect() runs one more reconnect when the attempt ends
+    else connect(() => Hypernova.reconnect());
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && device) refresh(device);
