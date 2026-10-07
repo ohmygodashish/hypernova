@@ -115,26 +115,40 @@ export class Hypernova extends EventTarget {
     return this.#exclusive(async () => decodeVersion((await this.#command(CMD.VERSION)).data));
   }
 
-  // The body of writeSetting, without the lock so SAF-007's pre-write can call it from inside the lock.
+  // The body of writeSetting, without the lock so it runs inside #exclusive.
   // Validation reads the cache here, at run time, so it sees the effect of every operation queued before it.
   async #write(key, value) {
     const bytes = this.#validate(key, value);
-    // SAF-007: the active stage must stay inside the stage count.
-    if (key === 'dpiStageCount' && this.#settings.dpiActiveStage >= value) {
-      await this.#write('dpiActiveStage', value - 1);
+    // SAF-007: the active stage must stay inside the stage count. The mouse's DPI button changes the
+    // active stage behind the cache's back, so read it fresh. The pre-write is valid for the new count
+    // by construction, so it skips #validate (which checks against the old one).
+    if (key === 'dpiStageCount') {
+      await this.#readField('dpiActiveStage');
+      const { dpiActiveStage: active } = this.#settings;
+      if (active === null || active >= value) await this.#store('dpiActiveStage', encodeField('dpiActiveStage', value - 1));
     }
+    return this.#store(key, bytes);
+  }
 
+  // Reads one field from the mouse into the cache and returns its raw bytes.
+  async #readField(key) {
+    const { addr, size } = FIELDS.find((field) => field.key === key);
+    const data = (await this.#command(CMD.READ, addr, size)).data.slice(0, size);
+    this.#flash.set(data, addr);
+    this.#settings = decodeSettings(this.#flash).settings;
+    return data;
+  }
+
+  // Writes the encoded bytes, verifies them with a READ, and returns the value the mouse reports.
+  async #store(key, bytes) {
     const { addr, size } = FIELDS.find((field) => field.key === key);
     let readBack;
     let verified = false;
     for (let write = 0; write < 2 && !verified; write++) { // SAF-006: one repeat
       await this.#command(CMD.WRITE, addr, size, bytes);
-      readBack = (await this.#command(CMD.READ, addr, size)).data.slice(0, size);
+      readBack = await this.#readField(key);
       verified = readBack.every((byte, i) => byte === bytes[i]);
     }
-    this.#flash.set(readBack, addr);
-    this.#settings = decodeSettings(this.#flash).settings;
-
     const { value: actual = null } = decodeField(key, readBack);
     if (!verified) {
       throw new DeviceError('verify', `${key} did not stick: the mouse reports ${JSON.stringify(actual)}`, { actual });
@@ -164,8 +178,10 @@ export class Hypernova extends EventTarget {
       throw invalid('Sensor mode is fixed over the cable');
     }
     if (!this.#settings) throw invalid('Read the settings before changing them');
-    if (key === 'dpiActiveStage' && value >= this.#settings.dpiStageCount) {
-      throw invalid(`Stage ${value + 1} is beyond the ${this.#settings.dpiStageCount} stages in use`);
+    if (key === 'dpiActiveStage') {
+      const count = this.#settings.dpiStageCount;
+      if (count === null) throw invalid('Set the DPI stage count first.');
+      if (value >= count) throw invalid(`Stage ${value + 1} is beyond the ${count} stages in use`);
     }
     try {
       return encodeField(key, value);
@@ -185,13 +201,18 @@ export class Hypernova extends EventTarget {
     try {
       // ponytail: the gap is measured from the end of the previous command; a retry is already a full timeout later.
       const gap = this.#lastEnd + this.#gapMs - performance.now();
-      if (gap > 0) await this.#expect(gap, () => false).done;
+      if (gap > 0) await this.#expect(Math.ceil(gap), () => false).done; // whole ms, so never under gapMs
 
+      // READ and WRITE replies echo the request's length; BATTERY and VERSION replies do not.
+      const sized = cmd === CMD.READ || cmd === CMD.WRITE;
       let sendError = null;
       for (let attempt = 1; attempt <= this.#attempts; attempt++) {
         this.#alive();
         // Listen before sending: the reply can arrive before sendReport resolves.
-        const waiter = this.#expect(this.#timeoutMs, (reply) => reply.cmd === cmd && reply.addr === addr);
+        const waiter = this.#expect(
+          this.#timeoutMs,
+          (reply) => reply.cmd === cmd && reply.addr === addr && (!sized || reply.len === len),
+        );
         sendError = null;
         try {
           await this.device.sendReport(REPORT_ID, payload);

@@ -23,13 +23,14 @@ class FakeDevice extends EventTarget {
   sentAt = []; // performance.now() of each
 
   // dropFirst/dropAll: take the report but never reply. rejectFirst/rejectAll: sendReport itself fails.
+  // stale: a valid reply for the same command and address but another length arrives before the real one.
   constructor(productId, {
-    flash = baseline, dropFirst = 0, dropAll = false, rejectFirst = 0, rejectAll = false, ignoreWrites = false, noise = false,
+    flash = baseline, dropFirst = 0, dropAll = false, rejectFirst = 0, rejectAll = false, ignoreWrites = false, noise = false, stale = false,
   } = {}) {
     super();
     this.productId = productId;
     this.flash = Uint8Array.from(flash);
-    Object.assign(this, { dropFirst, dropAll, rejectFirst, rejectAll, ignoreWrites, noise });
+    Object.assign(this, { dropFirst, dropAll, rejectFirst, rejectAll, ignoreWrites, noise, stale });
   }
 
   async open() { this.opened = true; }
@@ -50,6 +51,7 @@ class FakeDevice extends EventTarget {
       this.#emit(CMD.BATTERY, 0, 2, [0x28, 0x00, 0x0E, 0xE0]); // valid, but not the reply we want
       this.#emit(cmd, addr, 2, [0x09, 0x09], true); // right command, corrupted
     }
+    if (this.stale && (cmd === CMD.READ || cmd === CMD.WRITE)) this.#emit(cmd, addr, len + 1, Array(10).fill(0xEE));
     switch (cmd) {
       case CMD.READ:
         return this.#emit(cmd, addr, len, this.flash.subarray(addr, addr + len));
@@ -191,6 +193,15 @@ test('replies for another command or with a bad checksum are ignored', async () 
   assert.equal(fake.sent.length, 1);
 });
 
+test('a reply for the same command and address but another length is ignored', async () => {
+  const { fake, hn } = await connect({ stale: true });
+  assert.deepEqual(await hn.readSettings(), decodeSettings(baseline));
+  assert.equal(fake.sent.length, 20);
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('angleSnapping', true), true);
+  assert.equal(fake.sent.length, 2);
+});
+
 test('each command starts at least gapMs after the previous one finished', async () => {
   const { fake, hn } = await connect({ gapMs: 30 });
   await Promise.all([hn.readVersion(), hn.readBattery()]);
@@ -236,6 +247,48 @@ test('reducing the stage count writes the active stage first (SAF-007)', async (
   assert.deepEqual(writes, [[active, 1], [count, 2]]);
   assert.equal(hn.settings.dpiActiveStage, 1);
   assert.equal(hn.settings.dpiStageCount, 2);
+});
+
+test('the active stage is read fresh before the stage count is lowered (SAF-007)', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x04, 0x51], count); // 4 stages, stage index 0 active when read
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  fake.flash.set([0x03, 0x52], active); // the mouse's DPI button moved it to index 3
+  assert.equal(hn.settings.dpiActiveStage, 0, 'the cache is stale');
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('dpiStageCount', 2), 2);
+  const writes = fake.sent.filter((p) => p[0] === CMD.WRITE).map((p) => [p[3], p[5]]);
+  assert.deepEqual(writes, [[active, 1], [count, 2]]);
+  assert.deepEqual([fake.flash[count], fake.flash[active]], [2, 1]);
+  assert.deepEqual([hn.settings.dpiStageCount, hn.settings.dpiActiveStage], [2, 1]);
+});
+
+test('raising the stage count past an inconsistent active stage fixes the active stage first (SAF-007)', async () => {
+  const flash = Uint8Array.from(baseline);
+  const [count, active] = [addrOf('dpiStageCount'), addrOf('dpiActiveStage')];
+  flash.set([0x02, 0x53], count); // 2 stages
+  flash.set([0x04, 0x51], active); // but stage index 4 active
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  fake.sent.length = 0;
+  assert.equal(await hn.writeSetting('dpiStageCount', 3), 3);
+  const writes = fake.sent.filter((p) => p[0] === CMD.WRITE).map((p) => [p[3], p[5]]);
+  assert.deepEqual(writes, [[active, 2], [count, 3]]);
+  assert.deepEqual([hn.settings.dpiStageCount, hn.settings.dpiActiveStage], [3, 2]);
+});
+
+test('an active stage cannot be chosen while the stage count is unreadable', async () => {
+  const flash = Uint8Array.from(baseline);
+  flash[addrOf('dpiStageCount') + 1] ^= 0xFF; // broken check byte
+  const { fake, hn } = await connect({ flash });
+  await hn.readSettings();
+  assert.equal(hn.settings.dpiStageCount, null);
+  fake.sent.length = 0;
+  const error = await errorOf(hn.writeSetting('dpiActiveStage', 0), 'invalid');
+  assert.equal(error.message, 'Set the DPI stage count first.');
+  assert.equal(fake.sent.length, 0);
 });
 
 test('writes validate against the cache at run time, not at call time', async () => {
