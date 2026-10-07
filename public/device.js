@@ -196,13 +196,11 @@ export class Hypernova extends EventTarget {
         try {
           await this.device.sendReport(REPORT_ID, payload);
         } catch (error) {
-          // A failed send is a failed attempt, like a timeout. Pause the gap before the next one.
+          // A failed send is a failed attempt, handled exactly like a timeout: wait out the rest of the
+          // window (giving a transient failure time to clear) before the next attempt.
           sendError = error;
-          waiter.finish(null);
-          this.#alive();
-          await this.#expect(this.#gapMs, () => false).done;
         }
-        const reply = sendError ? null : await waiter.done;
+        const reply = await waiter.done;
         this.#alive();
         if (reply) return reply;
         if (attempt === 2) this.dispatchEvent(new Event('waiting'));

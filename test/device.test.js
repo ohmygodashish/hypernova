@@ -153,15 +153,21 @@ test('a rejected sendReport is retried like a timeout and counts toward the wait
 
   const twice = await connect({ rejectFirst: 2 });
   twice.hn.addEventListener('waiting', () => { waiting += 1; });
+  const start = performance.now();
   assert.equal(await twice.hn.readVersion(), '2.17');
   assert.equal(twice.fake.sent.length, 3);
   assert.equal(waiting, 1);
+  // Each failed send waits out its 20 ms window; 5 ms slack for timer rounding.
+  assert.ok(performance.now() - start >= 2 * 20 - 5, 'retried without waiting out the timeout');
 });
 
 test('sendReport that always rejects fails with a timeout carrying the cause, and the queue keeps working', async () => {
   const { fake, hn } = await connect({ rejectAll: true });
+  const start = performance.now();
   const error = await errorOf(hn.readBattery(), 'timeout');
   assert.equal(fake.sent.length, 4);
+  // Paced like timeouts: 4 attempts x 20 ms, checked as at least 3 x 20 ms less 5 ms slack.
+  assert.ok(performance.now() - start >= 3 * 20 - 5, 'gave up before the timeouts elapsed');
   assert.equal(error.cause.name, 'NotAllowedError');
   assert.match(error.message, /Failed to write the output report/);
   fake.rejectAll = false;
