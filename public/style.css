@@ -525,6 +525,73 @@ input[type="radio"] {
   accent-color: var(--accent);
 }
 
+/* Button groups: a fieldset of radios; the thumb slides under the checked one. */
+.seg {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.seg label { position: relative; z-index: 1; display: block; }
+.seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 38px;
+  padding: 0 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  transition: color .15s ease, transform 160ms var(--ease-out);
+}
+.seg label:active span { transform: scale(.97); }
+.seg input:checked + span { color: var(--text); }
+.seg input:disabled { cursor: not-allowed; }
+.seg input:disabled + span { opacity: .4; }
+.seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 1px; }
+.seg-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--n));
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line), var(--lift);
+  pointer-events: none;
+  transition: transform 200ms var(--ease-in-out), opacity .15s ease;
+}
+.seg:not(:has(input:checked)) .seg-thumb { opacity: 0; }
+.seg:has(input:focus-visible) .seg-thumb { transition: none; }
+.seg:has(label:nth-of-type(2) input:checked) .seg-thumb { transform: translateX(100%); }
+.seg:has(label:nth-of-type(3) input:checked) .seg-thumb { transform: translateX(200%); }
+.seg:has(label:nth-of-type(4) input:checked) .seg-thumb { transform: translateX(300%); }
+.seg:has(label:nth-of-type(5) input:checked) .seg-thumb { transform: translateX(400%); }
+.seg:has(label:nth-of-type(6) input:checked) .seg-thumb { transform: translateX(500%); }
+.seg:has(label:nth-of-type(7) input:checked) .seg-thumb { transform: translateX(600%); }
+/* A value the mouse has but the group cannot offer ("Unknown (0x40)") wraps, with no thumb. */
+.seg:has(.odd input:checked) { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.seg:has(.odd input:checked) .seg-thumb { display: none; }
+.seg .odd input:checked + span { opacity: 1; background: var(--warn-bg); color: var(--warn-text); }
+@media (hover: hover) and (pointer: fine) {
+  .seg label:hover span { color: var(--text); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg label:active span { transform: none; }
+  .seg-thumb { transition: opacity .15s ease; }
+}
+
 input[type="color"] {
   width: 44px;
   height: 36px;

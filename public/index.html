@@ -115,10 +115,10 @@
           <p>Sensitivity presets stored on the mouse.</p>
         </div>
         <div class="card">
-          <label class="row">
-            <span class="row-text"><span class="row-title">Stages in use</span><span class="row-desc">How many stages the DPI button cycles through.</span></span>
-            <select data-key="dpiStageCount"></select>
-          </label>
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-stages">Stages in use</span><span class="row-desc">How many stages the DPI button cycles through.</span></span>
+            <fieldset class="seg" data-key="dpiStageCount" aria-labelledby="l-stages"></fieldset>
+          </div>
           <fieldset id="stages" class="stages">
             <legend>Stages (select the active one)</legend>
           </fieldset>
@@ -130,24 +130,24 @@
       <section aria-labelledby="h-performance">
         <div class="heading"><h2 id="h-performance">Performance</h2></div>
         <div class="card">
-          <label class="row">
-            <span class="row-text"><span class="row-title">Report rate</span><span class="row-desc">How often the mouse reports, in Hz. 8000 Hz needs the cable.</span></span>
-            <select data-key="reportRateHz"></select>
-          </label>
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-rate">Report rate</span><span class="row-desc">How often the mouse reports, in Hz. 8000 Hz needs the cable.</span></span>
+            <fieldset class="seg" data-key="reportRateHz" aria-labelledby="l-rate"></fieldset>
+          </div>
         </div>
       </section>
 
       <section aria-labelledby="h-sensor">
         <div class="heading"><h2 id="h-sensor">Sensor</h2></div>
         <div class="card">
-          <label class="row">
-            <span class="row-text"><span class="row-title">Lift-off distance</span><span class="row-desc">Height at which the sensor stops tracking.</span></span>
-            <select data-key="lodMm"></select>
-          </label>
-          <label class="row">
-            <span class="row-text"><span class="row-title">Sensor mode</span><span class="row-desc">Low power or high performance. Fixed to Corded over the cable.</span></span>
-            <select data-key="sensorMode"></select>
-          </label>
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-lod">Lift-off distance</span><span class="row-desc">Height at which the sensor stops tracking.</span></span>
+            <fieldset class="seg" data-key="lodMm" aria-labelledby="l-lod"></fieldset>
+          </div>
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-mode">Sensor mode</span><span class="row-desc">Low power or high performance. Fixed to Corded over the cable.</span></span>
+            <fieldset class="seg" data-key="sensorMode" aria-labelledby="l-mode"></fieldset>
+          </div>
           <label class="row">
             <span class="row-text"><span class="row-title">Motion sync</span><span class="row-desc">Aligns sensor frames with USB polling.</span></span>
             <input class="switch" type="checkbox" data-key="motionSync">

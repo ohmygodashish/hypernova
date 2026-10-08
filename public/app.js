@@ -203,35 +203,76 @@ function unreadable(key) {
   return `Unknown (0x${error.raw[0].toString(16).toUpperCase().padStart(2, '0')})`;
 }
 
-// value: undefined before the first read, null when the mouse's value could not be decoded.
-function renderSelect(select, field, value) {
+// What a select or a button group offers for a field. value: undefined before the first read, null when the
+// mouse's value could not be decoded. blocked(pair): not choosable now (8000 Hz off the cable). odd: the value
+// is shown but cannot be chosen (unreadable, read-only, or blocked): { human, text, note }.
+function choicesFor(field, value) {
   const wired = device?.connection === 'wired';
-  let pairs = field.options ?? Array.from({ length: field.max - field.min + 1 }, (_, i) => [field.min + i]);
-  if (field.key === 'reportRateHz' && !wired) pairs = pairs.filter(([hz]) => hz !== 8000);
   const corded = field.key === 'sensorMode' && wired; // fixed over the cable
-  if (corded) {
-    pairs = field.readOnlyOptions;
-    value = 'Corded';
-  }
-  select.disabled = corded;
-
-  const items = pairs.map(([human]) => new Option(optionLabel(field.key, human), human));
-  const offered = pairs.some(([human]) => human === value);
-  if (value !== undefined && !offered) {
-    // Selected but not choosable: unreadable, or valid but not offered on this connection.
+  const pairs = corded ? field.readOnlyOptions : field.options ?? Array.from({ length: field.max - field.min + 1 }, (_, i) => [field.min + i]);
+  if (corded) value = 'Corded';
+  const blocked = ([human]) => field.key === 'reportRateHz' && human === 8000 && !wired;
+  let odd = null;
+  if (value !== undefined && !pairs.some((pair) => pair[0] === value && !blocked(pair))) {
     const note = field.options?.some(([human]) => human === value) ? 'cable only' : 'read-only';
-    const text = value === null ? unreadable(field.key) : `${optionLabel(field.key, value)} (${note})`;
-    const placeholder = new Option(text, '');
+    odd = value === null ? { human: null, text: unreadable(field.key), note: '' } : { human: value, text: optionLabel(field.key, value), note };
+  }
+  return { pairs, blocked, corded, value, odd };
+}
+
+function renderSelect(select, field, value) {
+  const { pairs, blocked, corded, value: shown, odd } = choicesFor(field, value);
+  select.disabled = corded;
+  const items = pairs.filter((pair) => !blocked(pair)).map(([human]) => new Option(optionLabel(field.key, human), human));
+  if (odd) {
+    const placeholder = new Option(odd.note ? `${odd.text} (${odd.note})` : odd.text, '');
     placeholder.disabled = true;
     items.unshift(placeholder);
   }
   select.replaceChildren(...items);
-  select.value = offered ? String(value) : '';
+  select.value = odd ? '' : String(shown ?? '');
+}
+
+// Button group text and accessible name per option (the select shows optionLabel).
+const SEG_NAMES = { LP: 'Low power', HP: 'High performance' };
+const segText = (key, human) => (key === 'lodMm' ? optionLabel(key, human) : String(human));
+
+function segOption(key, human, text, { name, title, checked, disabled, odd }) {
+  const input = Object.assign(document.createElement('input'), { type: 'radio', name: key, value: human ?? '', checked, disabled });
+  if (name) input.setAttribute('aria-label', name);
+  const label = Object.assign(document.createElement('label'), { className: odd ? 'odd' : '', title: title ?? '' });
+  label.append(input, Object.assign(document.createElement('span'), { textContent: text }));
+  return label;
+}
+
+function renderSegments(fieldset, field, value) {
+  const { pairs, blocked, corded, value: shown, odd } = choicesFor(field, value);
+  const key = field.key;
+  fieldset.disabled = corded;
+  const items = pairs.map((pair) => {
+    const [human] = pair;
+    const cableOnly = blocked(pair);
+    return segOption(key, human, segText(key, human), {
+      name: cableOnly ? `${human} Hz, cable only` : key === 'reportRateHz' ? `${human} Hz` : SEG_NAMES[human],
+      title: cableOnly ? 'Cable only' : '',
+      checked: human === shown,
+      disabled: cableOnly,
+      odd: cableOnly && odd?.human === human,
+    });
+  });
+  // A value that is not one of the options gets an extra first one.
+  if (odd && !pairs.some(([human]) => human === odd.human)) {
+    items.unshift(segOption(key, null, odd.text, { checked: true, disabled: true, odd: true }));
+  }
+  fieldset.style.setProperty('--n', items.length);
+  fieldset.replaceChildren(Object.assign(document.createElement('span'), { className: 'seg-thumb', ariaHidden: 'true' }), ...items);
 }
 
 function renderControl(el, field, value) {
   if (el.tagName === 'SELECT') {
     renderSelect(el, field, value);
+  } else if (el.tagName === 'FIELDSET') {
+    renderSegments(el, field, value);
   } else if (field.kind === 'bool') {
     el.checked = value === true;
     el.indeterminate = value === null;
@@ -390,13 +431,14 @@ function readControl(el, field) {
   if (el.type === 'checkbox') return el.checked;
   if (el.type === 'color') return el.value;
   if (field.options) return field.options.find(([human]) => String(human) === el.value)?.[0];
-  return Number(el.value); // number input, numeric select, radio
+  return Number(el.value); // number input, numeric select, stage count radio
 }
 
-// Writes one setting. The control is disabled while the write is pending, then redrawn from what the mouse reports.
+// Writes one setting. el is the control, or a button group's fieldset. It is disabled while the write is pending,
+// then redrawn from what the mouse reports.
 async function save(el, key, value) {
   const dev = device;
-  const hadFocus = document.activeElement === el;
+  const hadFocus = el.contains(document.activeElement);
   pending.add(el);
   el.disabled = true;
   showSave('saving');
@@ -412,13 +454,14 @@ async function save(el, key, value) {
   render();
   if (message) fail(message);
   else if (!pending.size) showSave('saved'); // not "Saved" while another write is still going
-  if (hadFocus) el.focus(); // disabling dropped the focus
+  if (hadFocus) (el.querySelector('input:checked') ?? el).focus(); // disabling dropped the focus; render() rebuilt a group's radios
 }
 
 controls.addEventListener('change', (event) => {
   const el = event.target;
-  const key = el.dataset.key;
-  if (key && device) save(el, key, readControl(el, fieldOf(key)));
+  const group = el.closest('.seg') ?? el; // a radio of a button group saves through its fieldset
+  const key = group.dataset.key;
+  if (key && device) save(group, key, readControl(el, fieldOf(key)));
 });
 
 $('use-stage-1').addEventListener('click', (event) => save(event.currentTarget, 'dpiActiveStage', 0));
