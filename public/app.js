@@ -264,8 +264,15 @@ function renderSegments(fieldset, field, value) {
   if (odd && !pairs.some(([human]) => human === odd.human)) {
     items.unshift(segOption(key, null, odd.text, { checked: true, disabled: true, odd: true }));
   }
-  fieldset.style.setProperty('--n', items.length);
-  fieldset.replaceChildren(Object.assign(document.createElement('span'), { className: 'seg-thumb', ariaHidden: 'true' }), ...items);
+  // Rebuild only when the options change, so the thumb keeps sliding and focus stays put. outerHTML leaves out `checked`.
+  const shape = items.map((label) => label.outerHTML).join('');
+  if (fieldset.shape !== shape) {
+    fieldset.shape = shape;
+    fieldset.style.setProperty('--n', items.length);
+    fieldset.replaceChildren(Object.assign(document.createElement('span'), { className: 'seg-thumb', ariaHidden: 'true' }), ...items);
+  } else {
+    fieldset.querySelectorAll('input').forEach((input, i) => { input.checked = items[i].firstElementChild.checked; });
+  }
 }
 
 function renderControl(el, field, value) {

@@ -541,7 +541,7 @@ input[type="radio"] {
 }
 .seg label { position: relative; z-index: 1; display: block; }
 .seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.seg span {
+.seg label span {
   display: flex;
   align-items: center;
   justify-content: center;
