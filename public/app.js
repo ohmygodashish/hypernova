@@ -5,9 +5,9 @@ import { Hypernova } from './device.js';
 import { FIELDS, STAGES, diffSettings, getSetting, toBackup, parseBackup } from './protocol.js';
 
 const POLL_MS = 60_000;
-const WAITING = 'Waiting for the mouse… move it to wake it.';
-const OPEN_FAILED = 'Could not open the mouse. On Linux, install the udev rule (see README).';
-const CONNECTION = { wired: 'Wired', wireless: 'Wireless (4K dongle)' };
+const WAITING = 'Waiting for the mouse. Move it to wake it.';
+const OPEN_FAILED = 'Could not open the mouse. On Linux, install the udev rule first.';
+const CONNECTION = { wired: 'Wired', wireless: 'Wireless Â· 4K dongle' };
 const UNITS = { reportRateHz: ' Hz', lodMm: ' mm', debounceMs: ' ms' };
 
 const LABELS = {
@@ -47,7 +47,6 @@ const pending = new Set(); // controls with a write in flight
 // ---- Controls ----
 
 const controls = $('settings');
-const statusText = $('status-text');
 
 // Six stage rows from the template; rows past the stage count are hidden by render().
 for (let i = 0; i < STAGES; i++) {
@@ -77,10 +76,110 @@ function showView(name) {
 // The sections and the note rise one after another (--i drives the delay in style.css).
 document.querySelectorAll('#settings > section, .note').forEach((el, i) => el.style.setProperty('--i', i));
 
-function setStatus(text, help = false) {
-  statusText.textContent = text;
-  $('linux-help').hidden = !help;
+// ---- The island: status and messages share one strip that springs between sizes ----
+
+const SPRING = 'linear(0,0.019,0.068,0.137,0.219,0.307,0.397,0.485,0.568,0.644,0.714,0.775,0.828,0.873,0.911,0.942,0.967,0.986,1.001,1.012,1.02,1.025,1.027,1.028,1.028,1.027,1.025,1.023,1.02,1.018,1.015,1.013,1.011,1.009,1.007,1.005,1.004,1.003,1.002,1.001,1)';
+const strip = $('strip');
+const statusLayer = $('strip-status');
+const msgLayer = $('strip-msg');
+let morphAnim = null;
+let morphing = false;
+let hideTimer = 0;
+let holding = false; // the pointer is over the strip
+let autoHide = false; // the message showing goes back to the status by itself
+
+// Runs update() and springs the strip from its old size to its new one. Nested calls join the outer one.
+function morph(update) {
+  if (morphing) return update();
+  const from = strip.getBoundingClientRect();
+  morphAnim?.cancel();
+  morphing = true;
+  try {
+    update();
+  } finally {
+    morphing = false;
+  }
+  const to = strip.getBoundingClientRect();
+  const same = Math.abs(to.width - from.width) < 1 && Math.abs(to.height - from.height) < 1;
+  if (same || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  morphAnim = strip.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], { duration: 650, easing: SPRING });
 }
+
+// Shows one layer and takes the other out of the tab order and the accessibility tree.
+function showLayer(message) {
+  statusLayer.classList.toggle('off', message);
+  statusLayer.inert = message;
+  msgLayer.classList.toggle('off', !message);
+  msgLayer.inert = !message;
+}
+
+// state: 'idle', 'connecting' or 'ready'. Disconnect is offered only while ready.
+function stripStatus(state) {
+  morph(() => {
+    for (const name of ['idle', 'connecting', 'ready']) $(`st-${name}`).hidden = name !== state;
+    $('disconnect').hidden = state !== 'ready';
+  });
+}
+
+const part = (name) => $('strip-parts').content.querySelector(`[data-part="${name}"]`).cloneNode(true);
+
+function hideMessage() {
+  clearTimeout(hideTimer);
+  autoHide = false;
+  morph(() => {
+    strip.dataset.kind = 'status';
+    showLayer(false);
+  });
+}
+
+// Messages return to the status after 2.2 s, but wait while the pointer is over the strip or the tab is hidden.
+function hideLater() {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => (document.hidden || holding ? hideLater() : hideMessage()), 2200);
+}
+
+// nodes: the new content, or null to keep what the layer holds. kind: status, saving, saved, info, warn or error.
+function present(kind, nodes, auto) {
+  clearTimeout(hideTimer);
+  const replacing = nodes && !msgLayer.classList.contains('off');
+  morph(() => {
+    strip.dataset.kind = kind;
+    msgLayer.dataset.msg = kind;
+    if (nodes) msgLayer.replaceChildren(...nodes);
+    showLayer(true);
+  });
+  // One message replacing another: blur the new content in, like the layer cross-fade.
+  if (replacing) msgLayer.animate([{ opacity: 0, filter: 'blur(4px)' }, { opacity: 1, filter: 'blur(0px)' }], { duration: 250, easing: 'cubic-bezier(0.23,1,0.32,1)' });
+  autoHide = auto;
+  if (auto) hideLater();
+}
+
+// icon: check, busy, idle, mouse, alert or error. Only an error stays until the user dismisses it.
+function say(kind, icon, text, link = false) {
+  const body = Object.assign(document.createElement('span'), { textContent: text });
+  if (link) body.append(' ', Object.assign(document.createElement('a'), { href: 'https://github.com/ohmygodashish/hypernova#linux', textContent: 'Linux setup' }));
+  const nodes = [part(icon), body];
+  if (kind === 'error') {
+    const close = part('x');
+    close.addEventListener('click', hideMessage);
+    nodes.push(close);
+  }
+  present(kind, nodes, kind !== 'error');
+}
+const fail = (text, link) => say('error', 'error', text, link);
+const done = (text) => say('saved', 'check', text);
+
+// phase: 'saving' (stays) or 'saved' (then back to the status). Saving to Saved swaps inside the same layer.
+function showSave(phase) {
+  const swapping = !msgLayer.classList.contains('off') && msgLayer.querySelector('.msg-swap');
+  present(phase, swapping ? null : [part('save')], phase === 'saved');
+}
+
+strip.addEventListener('mouseenter', () => { holding = true; });
+strip.addEventListener('mouseleave', () => {
+  holding = false;
+  if (autoHide) hideLater();
+});
 
 // ---- Display ----
 
@@ -181,8 +280,12 @@ function detach(message) {
   controls.disabled = true;
   plan = null;
   $('import-panel').hidden = true;
-  $('connection').textContent = $('firmware').textContent = $('battery').textContent = '–';
-  setStatus(message);
+  $('disconnect').disabled = false;
+  morph(() => {
+    stripStatus('idle');
+    if (message) say('info', 'idle', message);
+    else hideMessage();
+  });
 }
 
 // open: Hypernova.request or Hypernova.reconnect.
@@ -196,13 +299,13 @@ async function connect(open) {
       if (next && device) {
         // Picking another device (or the same one again): let go of the old instance first, then reopen.
         const old = device;
-        detach('Connecting…');
+        detach();
         await old.close().catch((error) => console.warn('Could not close the previous mouse:', error)); // not fatal
         await next.open();
       }
     } catch (error) {
       console.error(error);
-      setStatus(OPEN_FAILED, true);
+      fail(OPEN_FAILED, true);
       showView('empty');
       return;
     }
@@ -219,10 +322,10 @@ async function connect(open) {
 
 async function start(dev) {
   device = dev;
-  dev.addEventListener('waiting', () => { if (dev === device) setStatus(WAITING); });
+  dev.addEventListener('waiting', () => { if (dev === device) say('warn', 'mouse', WAITING); });
   // The mouse has no USB serial number, so Chrome forgets the permission on unplug: a replug needs a Connect click.
   dev.addEventListener('disconnect', () => { if (dev === device) detach('Disconnected. Plug the mouse back in, then click Connect.'); });
-  setStatus('Connecting…');
+  stripStatus('connecting');
   showView('loading');
   try {
     ({ errors } = await dev.readSettings());
@@ -231,7 +334,10 @@ async function start(dev) {
   } catch (error) {
     if (dev !== device) return; // unplugged while reading
     // ponytail: no retry button; after a failed first read the page is back to "not connected" and Connect tries again.
-    detach(error.message);
+    morph(() => {
+      detach();
+      fail(error.message);
+    });
     await dev.close();
     return;
   }
@@ -241,7 +347,7 @@ async function start(dev) {
   controls.disabled = false;
   render();
   showView('settings');
-  setStatus('Connected');
+  stripStatus('ready');
   pollTimer = setInterval(() => {
     if (document.visibilityState === 'visible') pollBattery(dev);
   }, POLL_MS);
@@ -254,7 +360,6 @@ async function pollBattery(dev) {
   } catch {
     // ponytail: a failed background read is silent; the next action the user takes reports the problem.
   }
-  if (dev === device && statusText.textContent === WAITING) setStatus('Connected');
 }
 
 // Re-reads everything: the mouse's own DPI button can change the active stage while the page is hidden.
@@ -266,9 +371,8 @@ async function refresh(dev) {
     errors = read.errors;
     $('battery').textContent = batteryText(battery);
     render();
-    setStatus('Connected');
   } catch (error) {
-    if (dev === device) setStatus(error.message);
+    if (dev === device) fail(error.message);
   }
 }
 
@@ -292,8 +396,8 @@ async function save(el, key, value) {
   const hadFocus = document.activeElement === el;
   pending.add(el);
   el.disabled = true;
-  setStatus('Saving…');
-  let message = 'Saved';
+  showSave('saving');
+  let message = null;
   try {
     await dev.writeSetting(key, value);
   } catch (error) {
@@ -303,7 +407,8 @@ async function save(el, key, value) {
   el.disabled = false;
   if (dev !== device) return;
   render();
-  if (message !== 'Saved' || !pending.size) setStatus(message); // not "Saved" while another write is still going
+  if (message) fail(message);
+  else if (!pending.size) showSave('saved'); // not "Saved" while another write is still going
   if (hadFocus) el.focus(); // disabling dropped the focus
 }
 
@@ -331,9 +436,9 @@ $('export').addEventListener('click', () => {
     const backup = toBackup(device.settings, { firmware, connection: device.connection, now });
     // The en-CA locale formats a date as YYYY-MM-DD in local time.
     download(`hypernova-settings-${now.toLocaleDateString('en-CA')}.json`, JSON.stringify(backup, null, 2));
-    setStatus('Settings exported');
+    done('Settings exported');
   } catch (error) {
-    setStatus(error.message);
+    fail(error.message);
   }
 });
 
@@ -344,7 +449,7 @@ const changesFor = (current, parsed) => diffSettings(current, { ...current, ...p
 function showPlan(current) {
   const { keys, parsed, skipped } = plan;
   $('import-changes').replaceChildren(...(keys.length
-    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} → ${show(key, getSetting(parsed, key))}`))
+    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} â†’ ${show(key, getSetting(parsed, key))}`))
     : [li('No differences from the current settings.')]));
   $('import-skipped').replaceChildren(...skipped.map(({ key, reason }) => li(`${LABELS[key]}: ${reason}`)));
   $('import-skipped-box').hidden = !skipped.length;
@@ -365,23 +470,21 @@ $('import-file').addEventListener('change', async (event) => {
     if (dev !== device) return;
     plan = { keys: changesFor(current, parsed), parsed, skipped };
     showPlan(current);
-    setStatus('Review the changes, then apply or cancel.');
   } catch (error) {
-    setStatus(`Import failed: ${error.message}`); // nothing was written
+    fail(`Import failed: ${error.message}`); // nothing was written
   }
 });
 
 $('import-cancel').addEventListener('click', () => {
   plan = null;
   $('import-panel').hidden = true;
-  setStatus('Import cancelled');
 });
 
-// Writes the keys, re-reads the mouse and returns the status to show. Never throws.
+// Writes the keys, re-reads the mouse and returns the message to show: [kind, icon, text]. Never throws.
 async function restore(dev, keys, parsed) {
   let problem = null;
   for (const [i, key] of keys.entries()) { // FIELDS order, so the stage count lands before the active stage
-    setStatus(`Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}…`);
+    say('info', 'busy', `Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}â€¦`);
     try {
       await dev.writeSetting(key, getSetting(parsed, key));
     } catch (error) {
@@ -394,13 +497,13 @@ async function restore(dev, keys, parsed) {
   } catch (error) {
     problem ??= error.message;
   }
-  if (problem) return problem;
+  if (problem) return ['error', 'error', problem];
   const differ = changesFor(dev.settings, parsed).filter((key) => keys.includes(key));
   if (differ.length) {
-    const [done, left] = [keys.length - differ.length, differ.length];
-    return `Restored ${done} setting${done === 1 ? '' : 's'}, but ${left} still ${left === 1 ? 'differs' : 'differ'}: ${differ.map((key) => LABELS[key]).join(', ')}.`;
+    const [restored, left] = [keys.length - differ.length, differ.length];
+    return ['error', 'error', `Restored ${restored} setting${restored === 1 ? '' : 's'}, but ${left} still ${left === 1 ? 'differs' : 'differ'}: ${differ.map((key) => LABELS[key]).join(', ')}.`];
   }
-  return `Restored ${keys.length} setting${keys.length === 1 ? '' : 's'}.`;
+  return ['saved', 'check', `Restored ${keys.length} setting${keys.length === 1 ? '' : 's'}`];
 }
 
 $('import-apply').addEventListener('click', async () => {
@@ -409,6 +512,7 @@ $('import-apply').addEventListener('click', async () => {
   plan = null;
   $('import-panel').hidden = true;
   controls.disabled = true;
+  $('disconnect').disabled = true; // not while the restore writes
   let message;
   try {
     // The mouse can change while the file is under review (its own DPI button), so check the preview against it now.
@@ -420,15 +524,22 @@ $('import-apply').addEventListener('click', async () => {
     } else {
       plan = { keys: now, parsed, skipped };
       showPlan(dev.settings);
-      message = 'The mouse changed since you opened the file. Review the updated changes and apply again.';
+      message = ['warn', 'alert', 'The mouse changed since you opened the file. Review the changes and restore again.'];
     }
   } catch (error) {
-    message = error.message;
+    message = ['error', 'error', error.message];
   }
   if (dev !== device) return;
   controls.disabled = false;
+  $('disconnect').disabled = false;
   render();
-  setStatus(message);
+  say(...message);
+});
+
+$('disconnect').addEventListener('click', async () => {
+  const dev = device;
+  detach(); // before close(), so the disconnect event finds no matching device and shows no unplug message
+  await dev.close().catch((error) => console.warn('Could not close the mouse:', error));
 });
 
 // ---- Start ----
@@ -448,7 +559,7 @@ if (!isSecureContext || !('hid' in navigator)) {
     $('copy-label').textContent = 'Link copied';
     setTimeout(() => { $('copy-label').textContent = 'Copy page link'; }, 2000);
   });
-  $('device-bar').hidden = true;
+  strip.hidden = true;
   showView('unsupported');
 } else {
   render(); // fills the selects before the first connection

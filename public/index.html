@@ -14,17 +14,28 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Hypernova Web Driver</h1>
-    <div id="device-bar">
-      <div class="bar">
-        <dl class="info">
-          <div><dt>Connection</dt><dd id="connection">–</dd></div>
-          <div><dt>Firmware</dt><dd id="firmware">–</dd></div>
-          <div><dt>Battery</dt><dd id="battery">–</dd></div>
-        </dl>
-      </div>
-      <p id="status" role="status" aria-live="polite"><span id="status-text">Not connected</span> <a id="linux-help" href="https://github.com/ohmygodashish/hypernova#linux" hidden>Linux setup</a></p>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 512 512" width="30" height="30" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#12151a"></rect><polygon points="256,64 300,212 448,256 300,300 256,448 212,300 64,256 212,212" fill="#7cb8ff"></polygon></svg>
+      <h1>Hypernova</h1>
+    </div>
+    <div id="strip" class="strip" role="status" data-kind="status">
+      <span id="strip-status" class="strip-layer strip-status">
+        <span id="st-idle" class="st muted"><span class="dot idle"></span>Not connected</span>
+        <span id="st-connecting" class="st muted fade-in" hidden><span class="dot busy"></span>Connecting…</span>
+        <span id="st-ready" class="ready" hidden>
+          <span class="st fade-in"><span class="dot"></span><span id="connection"></span></span>
+          <span class="vr fade-in" aria-hidden="true"></span>
+          <span class="st muted fade-in"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 7h11a2 2 0 0 1 2 2v.5a.5 .5 0 0 0 .5 .5a.5 .5 0 0 1 .5 .5v3a.5 .5 0 0 1 -.5 .5a.5 .5 0 0 0 -.5 .5v.5a2 2 0 0 1 -2 2h-11a2 2 0 0 1 -2 -2v-6a2 2 0 0 1 2 -2"></path></svg><span id="battery"></span></span>
+          <span class="vr fade-in" aria-hidden="true"></span>
+          <span class="muted fade-in">Firmware <span id="firmware"></span></span>
+        </span>
+      </span>
+      <span id="strip-msg" class="strip-layer strip-msg off" inert></span>
+    </div>
+    <div class="tools">
+      <a class="btn icon" href="https://github.com/ohmygodashish/hypernova" aria-label="Source on GitHub" title="Source on GitHub"><svg class="gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+      <button id="disconnect" class="btn device danger" type="button" hidden>Disconnect</button>
     </div>
   </header>
 
@@ -211,6 +222,19 @@
     <p class="note">Note: this is an unofficial project and is not affiliated with Cosmic Byte.</p>
   </main>
 
+  <template id="strip-parts">
+    <svg data-part="check" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12l5 5l10 -10"></path></svg>
+    <span data-part="busy" class="dot busy" aria-hidden="true"></span>
+    <span data-part="idle" class="dot idle" aria-hidden="true"></span>
+    <svg data-part="mouse" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 7a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4h-4a4 4 0 0 1 -4 -4z"></path><path d="M12 7l0 4"></path></svg>
+    <svg data-part="alert" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>
+    <svg data-part="error" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+    <button data-part="x" class="strip-x" type="button" aria-label="Dismiss"><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg></button>
+    <span data-part="save" class="msg-swap">
+      <span class="is-saving"><span class="dot busy" aria-hidden="true"></span>Saving…</span>
+      <span class="is-saved"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12l5 5l10 -10"></path></svg>Saved</span>
+    </span>
+  </template>
   <template id="stage-template">
     <div class="stage">
       <label class="stage-name"><input type="radio" name="active-stage" data-key="dpiActiveStage"> <span></span></label>
