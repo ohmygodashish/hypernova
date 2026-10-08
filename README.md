@@ -1,87 +1,74 @@
 # Hypernova Web Driver
 
-A small web app that configures a Cosmic Byte Hypernova gaming mouse straight from your browser, using WebHID. There is nothing to install: open the page, connect the mouse, and change its settings.
+Change the settings of your Cosmic Byte Hypernova mouse from a browser tab. It works on Windows, macOS and Linux, and there's nothing to install.
 
-This is an unofficial community project. It is not affiliated with, endorsed by, or sponsored by Cosmic Byte.
+**Open it: <https://hypernova.ohmygodashish.workers.dev/>**
 
-## Use it
+![The Hypernova Web Driver with a mouse connected](docs/screenshot.png)
 
-1. Close the official Cosmic Byte app first. It may overwrite changes you make here.
-2. Open <https://hypernova.ohmygodashish.workers.dev/>.
-3. Click **Connect** and choose the mouse in the browser prompt.
+> This is an unofficial community project, not affiliated with, endorsed by, or sponsored by Cosmic Byte.
 
-The status strip in the header shows the connection (wired or wireless), battery and firmware, and confirms each change as it is saved. Disconnect closes the mouse. The page reconnects by itself when you reload it. After you unplug the mouse or its dongle, or restart the browser, click **Connect** again: the mouse has no USB serial number, so the browser cannot remember it.
+## Get started
 
-The app only sends four commands: read settings, write a known setting, read battery, and read version. It verifies every write by reading the value back.
+1. Close the Cosmic Byte app if it's running, because it can overwrite your changes.
+2. Plug in the mouse with its cable, or plug in its 4K dongle.
+3. Open the page in Chrome, Edge, Opera, Brave or Arc, click **Connect**, and pick the mouse.
 
-Use the app in one tab or window at a time: two tabs, or the installed app and a tab, can both connect to the mouse and interleave their commands.
+Each change is saved to the mouse as soon as you make it. The bar at the top confirms it and shows the connection, battery and firmware.
+
+## What you can change
+
+| Setting | Options |
+|---|---|
+| DPI | Up to 6 stages, 50 to 26000 in steps of 50, with a colour per stage and the active stage |
+| Report rate | 125 to 4000 Hz, or 8000 Hz over the cable |
+| Lift-off distance | 1 mm or 2 mm |
+| Sensor mode | Low power or high performance over the dongle (fixed over the cable) |
+| Sensor extras | Motion sync, angle snapping, ripple control |
+| Peak performance | On or off, and for how long |
+| Debounce | 0 to 20 ms |
+| Sleep time | 10 s to 40 min |
+| Backup | Save all settings to a file, and restore them after reviewing what will change |
+
+Button remapping, macros, RGB effects, firmware updates and dongle pairing aren't supported.
+
+## Good to know
+
+- **Unplugged the mouse or restarted the browser?** Click **Connect** again. The mouse has no serial number, so the browser can't remember it. A plain reload reconnects by itself.
+- **Use one tab at a time.** Two tabs, or the installed app and a tab, would talk to the mouse at once.
+- **It's careful with your mouse.** It only reads settings, writes known settings, and reads the battery and firmware version. It reads every change back to confirm it. Firmware updates and pairing are never touched.
+- **You can install it.** Use the install button in the browser's address bar, and it opens in its own window and works offline.
 
 ## Browser support
 
-Chromium desktop browsers: Chrome, Edge, Opera, Brave, and Arc. Firefox and Safari do not implement WebHID, so they cannot run this app.
+The page uses WebHID, which only desktop Chromium browsers have: Chrome, Edge, Opera, Brave and Arc. Firefox, Safari and phones can't connect to the mouse.
 
 ## Linux
 
-Linux needs a udev rule so your user can open the mouse's hidraw device. Save this as `/etc/udev/rules.d/70-hypernova.rules`:
+Your user needs permission to open the mouse. Save this rule as `/etc/udev/rules.d/70-hypernova.rules`:
 
 ```
-# /etc/udev/rules.d/70-hypernova.rules
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="f5fa|f5fb", TAG+="uaccess"
 ```
 
-Then reload the rules:
+Reload the rules, then unplug and replug the mouse or its dongle:
 
 ```
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-Unplug and replug the mouse (or its dongle) afterwards.
-
-## What it can change
-
-- Report rate: 125-4000 Hz, plus 8000 Hz over the cable only
-- DPI stages 1-6: value 50-26000 in steps of 50, an indicator colour per stage, and the active stage
-- Lift-off distance: 1 mm or 2 mm
-- Sensor mode: LP or HP over the dongle (shown as Corded over the cable)
-- Motion sync, angle snapping, and ripple control
-- Peak performance and its time
-- Debounce: 0-20 ms
-- Mouse sleep time: 10 s to 40 min
-- Backup and restore of all settings to a JSON file (restore lists the changes for review first)
-- Battery level and firmware version display
-
-Not supported: button remapping, macros, RGB lighting and DPI LED effects, firmware updates, and dongle pairing.
-
 ## Development
 
-No framework and no bundler: the site is static files in `public/`.
+The site is plain HTML, CSS and JavaScript in `public/`, with no framework and no build step.
 
 ```
 npm install
 npm test
 npm run dev
-npm run icons
 ```
 
-- `npm test` runs the unit tests with Node's built-in test runner.
-- `npm run dev` serves the site at `http://localhost:8787`.
-- `npm run icons` regenerates the PWA icons in `public/icons/`.
-
-## Deployment
-
-The site is served as static assets by Cloudflare Workers and deployed automatically from this GitHub repo with Workers Builds. Use these settings:
-
-- Production branch: `main`
-- Build command: `npm test`
-- Deploy command: `npx wrangler deploy`
-
-To deploy by hand, run `npm run deploy`.
-
-## Documentation
-
-- [Architecture and requirements spec](docs/spec-architecture-hypernova-web-driver.md)
-- [HID protocol reference](docs/spec-data-hypernova-hid-protocol.md)
+`npm run dev` serves the site at <http://localhost:8787>. The [architecture spec](docs/spec-architecture-hypernova-web-driver.md) and the [HID protocol reference](docs/spec-data-hypernova-hid-protocol.md) explain how it works.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The Geist font in `public/fonts/` is under the SIL Open Font License.
