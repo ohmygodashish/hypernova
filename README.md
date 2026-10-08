@@ -4,7 +4,7 @@ Change the settings of your Cosmic Byte Hypernova mouse from a browser tab. It w
 
 **Open it: <https://hypernova.ohmygodashish.workers.dev/>**
 
-![The Hypernova Web Driver with a mouse connected](docs/screenshot.png)
+![The Hypernova Web Driver with a mouse connected](images/ui.png)
 
 > This is an unofficial community project, not affiliated with, endorsed by, or sponsored by Cosmic Byte.
 
