@@ -286,6 +286,10 @@ function renderControl(el, field, value) {
   } else if (field.kind === 'bool') {
     el.checked = value === true;
     el.indeterminate = value === null;
+    // An unreadable value is tagged on the row title until it is repaired.
+    const title = el.closest('.row').querySelector('.row-title');
+    title.querySelector('.tag')?.remove();
+    if (value === null) title.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: unreadable(field.key) }));
   } else if (field.kind === 'color') {
     // ponytail: a colour that could not be read shows black, and picking black again fires no change event.
     el.value = value ?? '#000000';
@@ -323,9 +327,15 @@ function render() {
   }
 
   const stuck = errors.filter(({ key }) => getSetting(settings, key) === null && !(wired && key === 'sensorMode'));
-  $('warnings').replaceChildren(...stuck.map(({ key }) => (
-    li(`${LABELS[key]}: ${unreadable(key)}. Choose a new value to repair it.`)
-  )));
+  const texts = stuck.map(({ key }) => `${LABELS[key]}: ${unreadable(key)}. Choose a new value to repair it.`);
+  // Redraw only when the list changes, so the banners do not drop in again after every write.
+  if (texts.join('\n') !== [...$('warnings').children].map((item) => item.textContent).join('\n')) {
+    $('warnings').replaceChildren(...texts.map((text) => {
+      const item = Object.assign(li(text), { className: 'banner drop-in' });
+      item.prepend(part('alert'));
+      return item;
+    }));
+  }
   const { dpiActiveStage: active, dpiStageCount: total } = settings ?? {};
   const outside = Number.isInteger(active) && Number.isInteger(total) && active >= total;
   $('active-warning').hidden = !outside;
@@ -347,8 +357,7 @@ function detach(message) {
   showView('empty');
   clearInterval(pollTimer);
   controls.disabled = true;
-  plan = null;
-  $('import-panel').hidden = true;
+  closePlan();
   $('disconnect').disabled = false;
   morph(() => {
     stripStatus('idle');
@@ -520,21 +529,37 @@ $('export').addEventListener('click', () => {
 // The settings an import would change, in FIELDS order. parsed holds only the keys it accepted.
 const changesFor = (current, parsed) => diffSettings(current, { ...current, ...parsed });
 
+const importHint = $('import-line').textContent; // the row description while no file is under review
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const span = (textContent, className) => Object.assign(document.createElement('span'), { textContent, className });
+
+// Closes the review panel and forgets the pending import.
+function closePlan() {
+  plan = null;
+  $('import-panel').hidden = true;
+  $('import-line').textContent = importHint;
+}
+
 // Opens the review panel for `plan`: what applying it would change in the mouse's current settings.
 function showPlan(current) {
-  const { keys, parsed, skipped } = plan;
-  $('import-changes').replaceChildren(...(keys.length
-    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} → ${show(key, getSetting(parsed, key))}`))
-    : [li('No differences from the current settings.')]));
+  const { keys, parsed, skipped, name } = plan;
+  $('import-line').textContent = name;
+  $('import-heading').textContent = keys.length ? `${plural(keys.length, 'change')} to apply` : 'No differences from the current settings.';
+  $('import-changes').hidden = !keys.length;
+  $('import-changes').replaceChildren(...keys.map((key) => {
+    const row = document.createElement('li');
+    row.append(span(LABELS[key]), span(show(key, getSetting(current, key)), 'was'), part('arrow'), span(show(key, getSetting(parsed, key)), 'now'));
+    return row;
+  }));
   $('import-skipped').replaceChildren(...skipped.map(({ key, reason }) => li(`${LABELS[key]}: ${reason}`)));
   $('import-skipped-box').hidden = !skipped.length;
+  $('import-apply').textContent = `Restore ${plural(keys.length, 'setting')}`;
   $('import-apply').disabled = !keys.length;
   $('import-panel').hidden = false;
 }
 
 $('import-file').addEventListener('change', async (event) => {
-  plan = null; // a new file replaces the pending one, even if it turns out to be unusable
-  $('import-panel').hidden = true;
+  closePlan(); // a new file replaces the pending one, even if it turns out to be unusable
   const [file] = event.target.files;
   event.target.value = ''; // so the same file can be chosen again
   if (!file || !device) return;
@@ -543,17 +568,14 @@ $('import-file').addEventListener('change', async (event) => {
     const { settings: parsed, skipped } = parseBackup(await file.text(), { connection: dev.connection });
     const current = dev.settings;
     if (dev !== device) return;
-    plan = { keys: changesFor(current, parsed), parsed, skipped };
+    plan = { keys: changesFor(current, parsed), parsed, skipped, name: file.name };
     showPlan(current);
   } catch (error) {
     fail(`Import failed: ${error.message}`); // nothing was written
   }
 });
 
-$('import-cancel').addEventListener('click', () => {
-  plan = null;
-  $('import-panel').hidden = true;
-});
+$('import-cancel').addEventListener('click', closePlan);
 
 // Writes the keys, re-reads the mouse and returns the message to show: [kind, icon, text]. Never throws.
 async function restore(dev, keys, parsed) {
@@ -583,9 +605,8 @@ async function restore(dev, keys, parsed) {
 
 $('import-apply').addEventListener('click', async () => {
   const dev = device;
-  const { keys, parsed, skipped } = plan;
-  plan = null;
-  $('import-panel').hidden = true;
+  const { keys, parsed, skipped, name } = plan;
+  closePlan();
   controls.disabled = true;
   $('disconnect').disabled = true; // not while the restore writes
   let message;
@@ -597,7 +618,7 @@ $('import-apply').addEventListener('click', async () => {
     if (now.join() === keys.join()) {
       message = await restore(dev, keys, parsed);
     } else {
-      plan = { keys: now, parsed, skipped };
+      plan = { keys: now, parsed, skipped, name };
       showPlan(dev.settings);
       message = ['warn', 'alert', 'The mouse changed since you opened the file. Review the changes and restore again.'];
     }

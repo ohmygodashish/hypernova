@@ -210,6 +210,7 @@ label.row { cursor: pointer; }
 @media (hover: hover) and (pointer: fine) {
   .btn:hover { background: var(--surface-2); }
   .btn.primary:hover { background: color-mix(in srgb, var(--text) 85%, var(--bg)); }
+  .select select:hover, .select option:hover { background: var(--surface-2); }
   .btn.danger:hover {
     background: var(--err-bg);
     color: var(--err-text);
@@ -315,8 +316,6 @@ main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32p
 .note { margin-top: auto; font-size: 12px; color: var(--muted); text-align: center; text-wrap: pretty; }
 
 /* The island header: a floating bar whose strip shows the status or one message at a time. */
-
-h3 { margin: 12px 0 4px; font-size: 0.95rem; }
 
 .topbar {
   position: sticky;
@@ -567,42 +566,95 @@ h3 { margin: 12px 0 4px; font-size: 0.95rem; }
 
 /* Messages */
 
-.warn-list:empty { display: none; }
-
-.warn, .warn-list li {
-  padding: 8px 12px;
-  background: var(--warn-bg);
-  border-radius: 8px;
-  color: var(--warn-text);
-}
-
-.warn { margin: 0 18px 16px; }
+#warnings { display: grid; gap: 8px; }
+#warnings:empty { display: none; }
 .card > .banner { margin: 0 18px 12px; }
+.card > #debounce-warning { margin-bottom: 16px; }
 .banner span { flex: 1 1 260px; }
-.warn-list li + li { margin-top: 8px; }
 
-.panel {
-  margin: 0 18px 16px;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* Backup: the file input hides inside its button but stays focusable; the button draws the ring. */
+.file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 18px 18px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--surface-2);
 }
+.review h3 { font-size: 14px; font-weight: 600; }
+.diff li { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px auto; align-items: center; gap: 10px; min-height: 40px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.diff li + li { border-top: 1px solid var(--border); }
+.diff .was, .diff .ic { color: var(--muted); }
+.diff .now { font-weight: 600; }
+.skipped { display: flex; flex-direction: column; gap: 4px; }
+.skipped h3 { font-size: 13px; font-weight: 500; color: var(--muted); }
+.skipped ul { font-size: 13px; color: var(--muted); }
+.review-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
 
-.panel > h3:first-child { margin-top: 0; }
-.panel ul { padding-left: 20px; list-style: disc; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-
-/* Controls */
-
-select {
-  max-width: 100%;
-  min-height: 36px;
-  padding: 6px 10px;
+/* Dropdowns: the native select with the themed picker (appearance: base-select). */
+.select { position: relative; display: inline-flex; align-items: center; }
+.select select {
+  align-items: center;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  min-height: 40px;
+  padding: 0 34px 0 12px;
+  border-radius: 8px;
+  border: 0;
   background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--border);
+  cursor: pointer;
+  box-shadow: 0 0 0 1px var(--line), var(--lift);
+  transition: background-color .15s ease;
+}
+.select .ic { position: absolute; right: 11px; pointer-events: none; color: var(--muted); transition: rotate 200ms var(--ease-out); }
+.select select, .select select::picker(select) { appearance: base-select; }
+.select select::picker-icon { display: none; }
+.select select:open + .ic { rotate: 180deg; }
+.select select::picker(select) {
+  margin-top: 6px;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  max-height: 296px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: 0 0 0 1px var(--line), var(--lift), 0 8px 24px rgba(17, 17, 26, .12);
+  opacity: 0;
+  transform: translateY(-4px) scale(.97);
+  transform-origin: top;
+  transition: opacity 120ms ease, transform 120ms var(--ease-out), display 120ms allow-discrete, overlay 120ms allow-discrete;
+}
+.select select:open::picker(select) { opacity: 1; transform: none; transition-duration: 180ms; }
+@starting-style { .select select:open::picker(select) { opacity: 0; transform: translateY(-4px) scale(.97); } }
+.select option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px 0 10px;
   border-radius: 8px;
-  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color .15s ease;
+}
+.select option::checkmark { content: ""; width: 9px; height: 5px; border: solid currentColor; border-width: 0 0 1.5px 1.5px; rotate: -45deg; translate: 0 -2px; }
+.select option:focus-visible { outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  .select select::picker(select), .select select:open::picker(select) { transform: none; }
+  .select .ic { transition: none; }
 }
 
 /* Button groups: a fieldset of radios; the thumb slides under the checked one. */
@@ -672,24 +724,5 @@ select {
   .seg-thumb { transition: opacity .15s ease; }
 }
 
-input[type="file"] { max-width: 100%; font: inherit; }
-
-button {
-  min-height: 36px;
-  padding: 6px 14px;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.primary {
-  background: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
-}
-
-:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Disabled looks of the controls without their own (the switch and the button group dim themselves). */
+:is(.btn, .select select, .dpi, .swatch):disabled { opacity: .55; cursor: not-allowed; }

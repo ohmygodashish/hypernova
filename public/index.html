@@ -107,7 +107,7 @@
     </div>
 
     <fieldset id="settings" hidden disabled>
-      <ul id="warnings" class="warn-list"></ul>
+      <ul id="warnings"></ul>
 
       <section aria-labelledby="h-dpi">
         <div class="heading col">
@@ -167,7 +167,7 @@
           </label>
           <label class="row">
             <span class="row-text"><span class="row-title">Peak performance time</span><span class="row-desc">How long peak performance stays on.</span></span>
-            <select data-key="peakPerformanceTime"></select>
+            <span class="select"><select data-key="peakPerformanceTime"></select><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></span>
           </label>
         </div>
       </section>
@@ -177,9 +177,9 @@
         <div class="card">
           <label class="row">
             <span class="row-text"><span class="row-title">Debounce time</span><span class="row-desc">Minimum time between two clicks of one button.</span></span>
-            <select data-key="debounceMs"></select>
+            <span class="select"><select data-key="debounceMs"></select><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></span>
           </label>
-          <p id="debounce-warning" class="warn" hidden>Very low debounce can cause double clicks.</p>
+          <p id="debounce-warning" class="banner drop-in" hidden><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>Very low debounce can cause double clicks.</p>
         </div>
       </section>
 
@@ -188,7 +188,7 @@
         <div class="card">
           <label class="row">
             <span class="row-text"><span class="row-title">Mouse sleep time</span><span class="row-desc">Idle time before the mouse sleeps to save battery.</span></span>
-            <select data-key="sleepSeconds"></select>
+            <span class="select"><select data-key="sleepSeconds"></select><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></span>
           </label>
         </div>
       </section>
@@ -198,22 +198,22 @@
         <div class="card">
           <div class="row">
             <span class="row-text"><span class="row-title">Export settings</span><span class="row-desc">Save every setting to a JSON file.</span></span>
-            <button id="export" type="button">Export</button>
+            <button id="export" class="btn" type="button"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 11l5 5l5 -5"></path><path d="M12 4l0 12"></path></svg>Export</button>
           </div>
-          <label class="row">
-            <span class="row-text"><span class="row-title">Restore from a file</span><span class="row-desc">Shows what would change before anything is written.</span></span>
-            <input id="import-file" type="file" accept="application/json">
-          </label>
-          <div id="import-panel" class="panel" hidden>
-            <h3>Changes to apply</h3>
-            <ul id="import-changes"></ul>
-            <div id="import-skipped-box" hidden>
+          <div class="row">
+            <span class="row-text"><span class="row-title">Restore from a file</span><span id="import-line" class="row-desc">Shows what would change before anything is written.</span></span>
+            <label class="btn"><input id="import-file" class="file-input" type="file" accept="application/json"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 9l5 -5l5 5"></path><path d="M12 4l0 12"></path></svg>Choose file…</label>
+          </div>
+          <div id="import-panel" class="review drop-in" role="region" aria-labelledby="import-heading" hidden>
+            <h3 id="import-heading"></h3>
+            <ul id="import-changes" class="diff"></ul>
+            <div id="import-skipped-box" class="skipped" hidden>
               <h3>Skipped</h3>
               <ul id="import-skipped"></ul>
             </div>
-            <div class="actions">
-              <button id="import-apply" type="button" class="primary">Apply</button>
-              <button id="import-cancel" type="button">Cancel</button>
+            <div class="review-actions">
+              <button id="import-apply" class="btn primary" type="button"></button>
+              <button id="import-cancel" class="btn" type="button">Cancel</button>
             </div>
           </div>
         </div>
@@ -229,7 +229,8 @@
     <span data-part="idle" class="dot idle" aria-hidden="true"></span>
     <svg data-part="mouse" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 7a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4h-4a4 4 0 0 1 -4 -4z"></path><path d="M12 7l0 4"></path></svg>
     <svg data-part="alert" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>
-    <svg data-part="error" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+    <svg data-part="arrow" class="ic" viewBox="0 0 24 24" width="16" height="16" aria-label="changes to" role="img"><path d="M5 12l14 0"></path><path d="M13 18l6 -6"></path><path d="M13 6l6 6"></path></svg>
+    <svg data-part="error"class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
     <button data-part="x" class="strip-x" type="button" aria-label="Dismiss"><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg></button>
     <span data-part="save" class="msg-swap">
       <span class="is-saving"><span class="dot busy" aria-hidden="true"></span>Saving…</span>
