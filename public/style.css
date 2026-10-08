@@ -186,7 +186,7 @@ label.row { cursor: pointer; }
 .switch:checked { background: var(--on); }
 .switch:checked::before { transform: translateX(16px); background: var(--thumb-on); }
 .switch:not(:disabled):active { transform: scale(.97); }
-.switch:indeterminate::before, .switch.unknown::before { transform: translateX(8px); }
+.switch:indeterminate::before { transform: translateX(8px); }
 .switch:disabled { opacity: .4; cursor: not-allowed; }
 
 .banner {
@@ -540,7 +540,9 @@ main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32p
   box-shadow: inset 0 0 0 1px var(--border);
   transition: transform 160ms var(--ease-out), color .15s ease;
 }
-.pick:active span { transform: scale(.97); }
+.pick:has(input:not(:disabled)):active span { transform: scale(.97); }
+.pick input:disabled { cursor: not-allowed; }
+.pick input:disabled ~ span { opacity: .4; }
 .pick input:checked ~ .off, .pick input:not(:checked) ~ .on { display: none; }
 .pick .on { color: var(--text); background: var(--surface); box-shadow: none; }
 .pick input:focus-visible ~ span { outline: 2px solid var(--focus); outline-offset: 1px; }
@@ -557,10 +559,10 @@ main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32p
 
 @media (hover: hover) and (pointer: fine) {
   .dpi:hover:not(:focus) { border-color: var(--border); }
-  .pick:hover .off { color: var(--text); }
+  .pick:has(input:not(:disabled)):hover .off { color: var(--text); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pick:active span { transform: none; }
+  .pick:has(input:not(:disabled)):active span { transform: none; }
   .stage { transition-property: opacity, background-color, box-shadow; }
 }
 
@@ -687,7 +689,7 @@ main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32p
   font-variant-numeric: tabular-nums;
   transition: color .15s ease, transform 160ms var(--ease-out);
 }
-.seg label:active span { transform: scale(.97); }
+.seg label:has(input:not(:disabled)):active span { transform: scale(.97); }
 .seg input:checked + span { color: var(--text); }
 .seg input:disabled { cursor: not-allowed; }
 .seg input:disabled + span { opacity: .4; }
@@ -717,10 +719,10 @@ main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32p
 .seg:has(.odd input:checked) .seg-thumb { display: none; }
 .seg .odd input:checked + span { opacity: 1; background: var(--warn-bg); color: var(--warn-text); }
 @media (hover: hover) and (pointer: fine) {
-  .seg label:hover span { color: var(--text); }
+  .seg label:has(input:not(:disabled)):hover span { color: var(--text); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .seg label:active span { transform: none; }
+  .seg label:has(input:not(:disabled)):active span { transform: none; }
   .seg-thumb { transition: opacity .15s ease; }
 }
 

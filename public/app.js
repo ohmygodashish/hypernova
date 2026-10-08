@@ -41,6 +41,7 @@ let errors = []; // unreadable fields from the last readSettings
 let connecting = false;
 let replugged = false; // a mouse showed up while a connect attempt was under way
 let pollTimer = null;
+let polling = false; // the background battery read is under way
 let plan = null; // an import waiting for confirmation: { keys, parsed, skipped }
 const pending = new Set(); // controls with a write in flight
 
@@ -354,6 +355,7 @@ const batteryText = ({ percent, charging }) => (charging ? 'Charging' : `${perce
 // Forgets the mouse and shows the connect card.
 function detach(message) {
   device = null;
+  morphCount = false;
   showView('empty');
   clearInterval(pollTimer);
   controls.disabled = true;
@@ -374,13 +376,6 @@ async function connect(open) {
     let next;
     try {
       next = await open();
-      if (next && device) {
-        // Picking another device (or the same one again): let go of the old instance first, then reopen.
-        const old = device;
-        detach();
-        await old.close().catch((error) => console.warn('Could not close the previous mouse:', error)); // not fatal
-        await next.open();
-      }
     } catch (error) {
       console.error(error);
       fail(OPEN_FAILED, true);
@@ -388,7 +383,7 @@ async function connect(open) {
       return;
     }
     if (next) await start(next);
-    else if (!device) showView('empty'); // cancelled, or no granted mouse
+    else showView('empty'); // cancelled, or no granted mouse
   } finally {
     connecting = false;
     // On Windows one plug-in fires a connect event per collection, so one may arrive mid-attempt.
@@ -400,7 +395,7 @@ async function connect(open) {
 
 async function start(dev) {
   device = dev;
-  dev.addEventListener('waiting', () => { if (dev === device) say('warn', 'mouse', WAITING); });
+  dev.addEventListener('waiting', () => { if (dev === device && !polling) say('warn', 'mouse', WAITING); });
   // The mouse has no USB serial number, so Chrome forgets the permission on unplug: a replug needs a Connect click.
   dev.addEventListener('disconnect', () => { if (dev === device) detach('Disconnected. Plug the mouse back in, then click Connect.'); });
   stripStatus('connecting');
@@ -435,11 +430,14 @@ async function start(dev) {
 }
 
 async function pollBattery(dev) {
+  polling = true; // a sleeping mouse fires `waiting` during the poll; that is not news
   try {
     const battery = await dev.readBattery();
     if (dev === device) $('battery').textContent = batteryText(battery);
   } catch {
     // ponytail: a failed background read is silent; the next action the user takes reports the problem.
+  } finally {
+    polling = false;
   }
 }
 
@@ -491,7 +489,8 @@ async function save(el, key, value) {
   render();
   if (message) fail(message);
   else if (!pending.size) showSave('saved'); // not "Saved" while another write is still going
-  if (hadFocus) (el.querySelector('input:checked') ?? el).focus(); // disabling dropped the focus; render() rebuilt a group's radios
+  // Disabling dropped the focus; render() rebuilt a group's radios. "Use stage 1" hides its banner, so stage 1's radio takes over.
+  if (hadFocus) (el.closest('[hidden]') ? radios[0] : el.querySelector('input:checked') ?? el).focus();
 }
 
 controls.addEventListener('change', (event) => {
@@ -535,9 +534,11 @@ const span = (textContent, className) => Object.assign(document.createElement('s
 
 // Closes the review panel and forgets the pending import.
 function closePlan() {
+  const hadFocus = $('import-panel').contains(document.activeElement);
   plan = null;
   $('import-panel').hidden = true;
   $('import-line').textContent = importHint;
+  if (hadFocus) $('import-file').focus(); // the panel held the focus
 }
 
 // Opens the review panel for `plan`: what applying it would change in the mouse's current settings.
@@ -570,6 +571,7 @@ $('import-file').addEventListener('change', async (event) => {
     if (dev !== device) return;
     plan = { keys: changesFor(current, parsed), parsed, skipped, name: file.name };
     showPlan(current);
+    if (strip.dataset.kind === 'error') hideMessage(); // a stale "Import failed" next to a valid file
   } catch (error) {
     fail(`Import failed: ${error.message}`); // nothing was written
   }
