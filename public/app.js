@@ -7,7 +7,7 @@ import { FIELDS, STAGES, diffSettings, getSetting, toBackup, parseBackup } from 
 const POLL_MS = 60_000;
 const WAITING = 'Waiting for the mouse. Move it to wake it.';
 const OPEN_FAILED = 'Could not open the mouse. On Linux, install the udev rule first.';
-const CONNECTION = { wired: 'Wired', wireless: 'Wireless Â· 4K dongle' };
+const CONNECTION = { wired: 'Wired', wireless: 'Wireless · 4K dongle' };
 const UNITS = { reportRateHz: ' Hz', lodMm: ' mm', debounceMs: ' ms' };
 
 const LABELS = {
@@ -154,7 +154,7 @@ function present(kind, nodes, auto) {
   if (auto) hideLater();
 }
 
-// icon: check, busy, idle, mouse, alert or error. Only an error stays until the user dismisses it.
+// icon: check, busy, idle, mouse, alert or error.
 function say(kind, icon, text, link = false) {
   const body = Object.assign(document.createElement('span'), { textContent: text });
   if (link) body.append(' ', Object.assign(document.createElement('a'), { href: 'https://github.com/ohmygodashish/hypernova#linux', textContent: 'Linux setup' }));
@@ -164,7 +164,7 @@ function say(kind, icon, text, link = false) {
     close.addEventListener('click', hideMessage);
     nodes.push(close);
   }
-  present(kind, nodes, kind !== 'error');
+  present(kind, nodes, kind !== 'error' && icon !== 'busy'); // errors and progress stay until replaced or dismissed
 }
 const fail = (text, link) => say('error', 'error', text, link);
 const done = (text) => say('saved', 'check', text);
@@ -347,7 +347,10 @@ async function start(dev) {
   controls.disabled = false;
   render();
   showView('settings');
-  stripStatus('ready');
+  morph(() => {
+    stripStatus('ready');
+    hideMessage(); // a stale error or waiting hint from this attempt
+  });
   pollTimer = setInterval(() => {
     if (document.visibilityState === 'visible') pollBattery(dev);
   }, POLL_MS);
@@ -449,7 +452,7 @@ const changesFor = (current, parsed) => diffSettings(current, { ...current, ...p
 function showPlan(current) {
   const { keys, parsed, skipped } = plan;
   $('import-changes').replaceChildren(...(keys.length
-    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} â†’ ${show(key, getSetting(parsed, key))}`))
+    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} → ${show(key, getSetting(parsed, key))}`))
     : [li('No differences from the current settings.')]));
   $('import-skipped').replaceChildren(...skipped.map(({ key, reason }) => li(`${LABELS[key]}: ${reason}`)));
   $('import-skipped-box').hidden = !skipped.length;
@@ -484,7 +487,7 @@ $('import-cancel').addEventListener('click', () => {
 async function restore(dev, keys, parsed) {
   let problem = null;
   for (const [i, key] of keys.entries()) { // FIELDS order, so the stage count lands before the active stage
-    say('info', 'busy', `Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}â€¦`);
+    say('info', 'busy', `Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}…`);
     try {
       await dev.writeSetting(key, getSetting(parsed, key));
     } catch (error) {
