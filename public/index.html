@@ -119,11 +119,12 @@
             <span class="row-text"><span class="row-title" id="l-stages">Stages in use</span><span class="row-desc">How many stages the DPI button cycles through.</span></span>
             <fieldset class="seg" data-key="dpiStageCount" aria-labelledby="l-stages"></fieldset>
           </div>
-          <fieldset id="stages" class="stages">
-            <legend>Stages (select the active one)</legend>
-          </fieldset>
-          <p id="active-warning" class="warn" hidden>The active DPI stage is outside the stage count.
-            <button id="use-stage-1" type="button">Use stage 1</button></p>
+          <div id="active-warning" class="banner drop-in" role="alert" hidden>
+            <svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>
+            <span id="active-text"></span>
+            <button id="use-stage-1" class="btn" type="button">Use stage 1</button>
+          </div>
+          <div class="stages" id="stages"></div>
         </div>
       </section>
 
@@ -237,10 +238,9 @@
   </template>
   <template id="stage-template">
     <div class="stage">
-      <label class="stage-name"><input type="radio" name="active-stage" data-key="dpiActiveStage"> <span></span></label>
-      <label class="field">DPI <input type="number" min="50" max="26000" step="50" inputmode="numeric"></label>
-      <span class="xy" title="X and Y DPI differ in the mouse. Editing sets both."></span>
-      <label class="field">Colour <input type="color"></label>
+      <span class="stage-name"><input class="swatch" type="color"><span></span></span>
+      <label class="stage-dpi"><input class="dpi" type="number" min="50" max="26000" step="50" inputmode="numeric"><span>DPI</span><span class="xy" title="X and Y DPI differ in the mouse. Editing sets both."></span></label>
+      <label class="pick"><input type="radio" name="active-stage" data-key="dpiActiveStage"><span class="off">Set active</span><span class="on"><svg class="ic" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M5 12l5 5l10 -10"></path></svg>Active</span></label>
     </div>
   </template>
 </body>

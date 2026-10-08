@@ -48,20 +48,23 @@ const pending = new Set(); // controls with a write in flight
 
 const controls = $('settings');
 
-// Six stage rows from the template; rows past the stage count are hidden by render().
+// Six stage tiles from the template; tiles past the stage count are hidden by render().
 for (let i = 0; i < STAGES; i++) {
-  const row = $('stage-template').content.firstElementChild.cloneNode(true);
-  row.querySelector('.stage-name span').textContent = `Stage ${i + 1}`;
-  row.querySelector('[type=radio]').value = i;
+  const tile = $('stage-template').content.firstElementChild.cloneNode(true);
+  tile.style.viewTransitionName = `stage-${i + 1}`; // CSSOM, so CSP allows it
+  tile.style.viewTransitionClass = 'stage';
+  tile.querySelector('.stage-name span').textContent = `Stage ${i + 1}`;
+  tile.querySelector('[type=radio]').value = i;
+  tile.querySelector('.pick input').ariaLabel = `Make stage ${i + 1} active`;
   for (const [selector, prop] of [['[type=number]', 'dpi'], ['[type=color]', 'color']]) {
-    const input = row.querySelector(selector);
+    const input = tile.querySelector(selector);
     input.dataset.key = `dpiStages.${i}.${prop}`;
-    input.setAttribute('aria-label', LABELS[input.dataset.key]); // the visible "DPI" / "Colour" is the same in every row
+    input.ariaLabel = LABELS[input.dataset.key];
   }
-  $('stages').append(row);
+  $('stages').append(tile);
 }
-const rows = [...$('stages').querySelectorAll('.stage')];
-const radios = [...document.querySelectorAll('[type=radio]')]; // all write dpiActiveStage
+const tiles = [...$('stages').children];
+const radios = [...$('stages').querySelectorAll('[type=radio]')]; // all write dpiActiveStage
 const byKey = {};
 for (const el of document.querySelectorAll('[data-key]')) {
   if (el.type !== 'radio') byKey[el.dataset.key] = el;
@@ -294,12 +297,24 @@ function renderControl(el, field, value) {
   }
 }
 
+let morphCount = false; // the stage count was just clicked with a pointer: the next render morphs the tiles
+
 // Draws every control from device.settings. Controls with a write in flight keep what they show.
 function render() {
   const settings = device?.settings;
   const wired = device?.connection === 'wired';
   const count = settings?.dpiStageCount ?? STAGES;
-  rows.forEach((row, i) => { row.hidden = i >= count; });
+  const layout = () => {
+    $('stages').dataset.count = count;
+    tiles.forEach((tile, i) => { tile.hidden = i >= count; });
+  };
+  // Only a pointer click morphs; keyboard, reduced motion, and counts that arrive by restore or refresh just switch.
+  if (morphCount && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches && $('stages').dataset.count !== String(count)) {
+    document.startViewTransition(layout);
+  } else {
+    layout();
+  }
+  morphCount = false;
   for (const [key, el] of Object.entries(byKey)) {
     if (!pending.has(el)) renderControl(el, fieldOf(key), getSetting(settings, key));
   }
@@ -312,7 +327,13 @@ function render() {
     li(`${LABELS[key]}: ${unreadable(key)}. Choose a new value to repair it.`)
   )));
   const { dpiActiveStage: active, dpiStageCount: total } = settings ?? {};
-  $('active-warning').hidden = !(Number.isInteger(active) && Number.isInteger(total) && active >= total);
+  const outside = Number.isInteger(active) && Number.isInteger(total) && active >= total;
+  $('active-warning').hidden = !outside;
+  if (outside) $('active-text').textContent = `The mouse's active stage is stage ${active + 1}, but only ${total} stage${total === 1 ? ' is' : 's are'} in use.`;
+  // The active stage's colour tints the card; neutral when it is unknown or outside the count.
+  const accent = Number.isInteger(active) && active < count ? getSetting(settings, `dpiStages.${active}.color`) : null;
+  if (accent) document.documentElement.style.setProperty('--accent', accent);
+  else document.documentElement.style.removeProperty('--accent');
   $('debounce-warning').hidden = !(Number.isInteger(settings?.debounceMs) && settings.debounceMs <= 3);
 }
 
@@ -468,6 +489,7 @@ controls.addEventListener('change', (event) => {
   const el = event.target;
   const group = el.closest('.seg') ?? el; // a radio of a button group saves through its fieldset
   const key = group.dataset.key;
+  if (key === 'dpiStageCount') morphCount = !el.matches(':focus-visible'); // the write disables the group, so ask now
   if (key && device) save(group, key, readControl(el, fieldOf(key)));
 });
 
