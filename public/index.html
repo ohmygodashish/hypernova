@@ -18,7 +18,6 @@
     <h1>Hypernova Web Driver</h1>
     <div id="device-bar">
       <div class="bar">
-        <button id="connect" type="button" class="primary">Connect</button>
         <dl class="info">
           <div><dt>Connection</dt><dd id="connection">–</dd></div>
           <div><dt>Firmware</dt><dd id="firmware">–</dd></div>
@@ -29,10 +28,74 @@
     </div>
   </header>
 
-  <p id="unsupported" class="notice" role="alert" hidden></p>
+  
 
   <main id="main">
-    <fieldset id="controls" disabled>
+    <section id="unsupported" class="card view-card" aria-labelledby="h-unsupported" role="alert" hidden>
+      <span class="tile"><svg class="ic" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10z"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg></span>
+      <h2 id="h-unsupported">This browser can't reach the mouse</h2>
+      <p>The page talks to the mouse through WebHID, which only Chromium-based desktop browsers support. Open this page in Chrome, Edge, Opera, Brave or Arc on a computer.</p>
+      <button id="copy-link" class="btn" type="button"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z"></path><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"></path></svg><span id="copy-label">Copy page link</span></button>
+    </section>
+
+    <div id="empty" hidden>
+      <section class="card view-card" aria-labelledby="h-connect">
+        <svg class="logo lg" viewBox="0 0 512 512" width="56" height="56" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#12151a"></rect><polygon points="256,64 300,212 448,256 300,300 256,448 212,300 64,256 212,212" fill="#7cb8ff"></polygon></svg>
+        <h2 id="h-connect">Connect your mouse</h2>
+        <p>Plug in the mouse with its cable, or plug in its 4K dongle. Then click Connect and choose the mouse in the list your browser shows.</p>
+        <button id="connect" class="btn primary" type="button">Connect</button>
+      </section>
+      <ul class="tips">
+        <li><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg>Close the Cosmic Byte app first. It can overwrite changes you make here.</li>
+        <li><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg>After you unplug the mouse or restart the browser, click Connect again. The browser can't remember this mouse.</li>
+        <li><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg><span>On Linux, install the udev rule first. <a class="link" href="https://github.com/ohmygodashish/hypernova#linux">Linux setup</a></span></li>
+      </ul>
+    </div>
+
+    <div id="loading" aria-busy="true" hidden>
+      <section>
+        <div class="heading col">
+          <h2>DPI</h2>
+          <p>Sensitivity presets stored on the mouse.</p>
+        </div>
+        <div class="card">
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-ctrl"></span>
+          </div>
+          <div class="skel-stages">
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="heading"><h2>Performance</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-ctrl"></span>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="heading"><h2>Sensor</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-ctrl"></span>
+          </div>
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-switch"></span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <fieldset id="settings" hidden disabled>
       <ul id="warnings" class="warn-list"></ul>
 
       <section aria-labelledby="h-dpi">

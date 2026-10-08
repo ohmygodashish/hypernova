@@ -87,6 +87,8 @@
 [hidden] { display: none !important; }
 
 body {
+  display: flex;
+  flex-direction: column;
   margin: 0;
   min-height: 100vh;
   background: var(--bg);
@@ -223,29 +225,98 @@ label.row { cursor: pointer; }
 
 /* Page */
 
-main { max-width: 760px; margin: 0 auto; padding: 32px 24px 48px; }
-
-#controls {
+main {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 36px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
+  gap: 28px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 64px 24px 32px;
 }
+/* The settings and the skeleton share one column, so the page does not jump when the data arrives. */
+main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32px 24px 48px; }
 
-#controls > section { display: flex; flex-direction: column; gap: 12px; }
+#empty { display: flex; flex-direction: column; gap: 28px; }
+
+#settings, #loading { display: flex; flex-direction: column; gap: 36px; }
+#settings { min-width: 0; margin: 0; padding: 0; border: 0; }
+:is(#settings, #loading) > section { display: flex; flex-direction: column; gap: 12px; }
+
+/* Cards that stand alone on a page: unsupported, connect. */
+.view-card { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 32px 40px; text-align: center; }
+.view-card h2 { margin-top: 6px; font-size: 20px; font-weight: 600; }
+.view-card p { max-width: 46ch; color: var(--muted); text-wrap: pretty; }
+#unsupported p { max-width: 50ch; }
+.view-card .btn { margin-top: 10px; }
+.view-card .btn.primary { padding: 0 22px; }
+.logo.lg { border-radius: 12px; }
+.tile { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 14px; background: var(--surface-2); color: var(--muted); }
+
+.tips { display: grid; gap: 10px; padding: 0 6px; font-size: 13px; color: var(--muted); }
+.tips li { display: flex; gap: 10px; align-items: flex-start; }
+.link { color: var(--text); text-decoration: underline; text-underline-offset: 2px; font-weight: 500; }
+
+/* Skeleton shown while the first read runs. */
+.skel { position: relative; display: block; overflow: hidden; border-radius: 6px; background: var(--surface-2); }
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+.skel-text { display: flex; flex-direction: column; gap: 8px; }
+.skel-stages {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  height: 330px;
+  padding: 4px 18px 18px;
+}
+.skel-stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.skel-name { display: flex; align-items: center; gap: 10px; }
+.sk-title { width: 110px; height: 14px; }
+.sk-desc { width: 240px; height: 12px; }
+.sk-ctrl { width: 266px; height: 42px; border-radius: 10px; }
+.sk-dot { width: 28px; height: 28px; border-radius: 50%; }
+.sk-name { width: 54px; height: 12px; }
+.sk-num { width: 92px; height: 28px; }
+.sk-pill { width: 82px; height: 30px; border-radius: 999px; }
+.sk-switch { width: 40px; height: 24px; border-radius: 999px; }
+@media (prefers-reduced-motion: reduce) { .skel::after { animation: none; opacity: 0; } }
+
+/* The settings rise one after another when the view appears; --i is set in app.js. */
+#settings > section, main[data-view="settings"] .note {
+  animation: rise 200ms var(--ease-out) both;
+  animation-delay: calc(var(--i) * 40ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  #settings > section, main[data-view="settings"] .note { animation-name: fade; }
+}
 .heading { padding: 0 2px; }
 .heading.col { display: flex; flex-direction: column; gap: 4px; }
 .heading h2 { font-size: 16px; font-weight: 600; }
 .heading p { font-size: 13px; color: var(--muted); }
 
-.note { margin-top: 36px; font-size: 12px; color: var(--muted); text-align: center; text-wrap: pretty; }
+.note { margin-top: auto; font-size: 12px; color: var(--muted); text-align: center; text-wrap: pretty; }
 
 /* Header and status line: replaced by the island in a later step. */
 
-header, .notice { width: calc(100% - 48px); max-width: 712px; margin-inline: auto; }
+header { width: calc(100% - 48px); max-width: 712px; margin-inline: auto; }
 header { padding-top: 16px; }
 
 h1 { margin: 0 0 12px; font-size: 1.4rem; }
@@ -279,13 +350,6 @@ h3 { margin: 12px 0 4px; font-size: 0.95rem; }
   box-shadow: 0 0 0 1px var(--line);
 }
 #status a { text-decoration: underline; }
-
-.notice {
-  padding: 12px 16px;
-  background: var(--warn-bg);
-  border-radius: 8px;
-  color: var(--warn-text);
-}
 
 /* DPI stages */
 

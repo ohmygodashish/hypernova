@@ -46,7 +46,7 @@ const pending = new Set(); // controls with a write in flight
 
 // ---- Controls ----
 
-const controls = $('controls');
+const controls = $('settings');
 const statusText = $('status-text');
 
 // Six stage rows from the template; rows past the stage count are hidden by render().
@@ -67,6 +67,15 @@ const byKey = {};
 for (const el of document.querySelectorAll('[data-key]')) {
   if (el.type !== 'radio') byKey[el.dataset.key] = el;
 }
+
+// Shows one of the four page views; main[data-view] sets the layout.
+function showView(name) {
+  for (const id of ['unsupported', 'empty', 'loading', 'settings']) $(id).hidden = id !== name;
+  $('main').dataset.view = name;
+}
+
+// The sections and the note rise one after another (--i drives the delay in style.css).
+document.querySelectorAll('#settings > section, .note').forEach((el, i) => el.style.setProperty('--i', i));
 
 function setStatus(text, help = false) {
   statusText.textContent = text;
@@ -164,9 +173,10 @@ const batteryText = ({ percent, charging }) => (charging ? 'Charging' : `${perce
 
 // ---- Connecting ----
 
-// Forgets the mouse and locks the page.
+// Forgets the mouse and shows the connect card.
 function detach(message) {
   device = null;
+  showView('empty');
   clearInterval(pollTimer);
   controls.disabled = true;
   plan = null;
@@ -193,9 +203,11 @@ async function connect(open) {
     } catch (error) {
       console.error(error);
       setStatus(OPEN_FAILED, true);
+      showView('empty');
       return;
     }
     if (next) await start(next);
+    else if (!device) showView('empty'); // cancelled, or no granted mouse
   } finally {
     connecting = false;
     // On Windows one plug-in fires a connect event per collection, so one may arrive mid-attempt.
@@ -211,6 +223,7 @@ async function start(dev) {
   // The mouse has no USB serial number, so Chrome forgets the permission on unplug: a replug needs a Connect click.
   dev.addEventListener('disconnect', () => { if (dev === device) detach('Disconnected. Plug the mouse back in, then click Connect.'); });
   setStatus('Connecting…');
+  showView('loading');
   try {
     ({ errors } = await dev.readSettings());
     firmware = await dev.readVersion();
@@ -227,6 +240,7 @@ async function start(dev) {
   $('firmware').textContent = firmware;
   controls.disabled = false;
   render();
+  showView('settings');
   setStatus('Connected');
   pollTimer = setInterval(() => {
     if (document.visibilityState === 'visible') pollBattery(dev);
@@ -394,7 +408,6 @@ $('import-apply').addEventListener('click', async () => {
   const { keys, parsed, skipped } = plan;
   plan = null;
   $('import-panel').hidden = true;
-  $('connect').disabled = true; // choosing another mouse would abort the restore
   controls.disabled = true;
   let message;
   try {
@@ -411,8 +424,6 @@ $('import-apply').addEventListener('click', async () => {
     }
   } catch (error) {
     message = error.message;
-  } finally {
-    $('connect').disabled = false;
   }
   if (dev !== device) return;
   controls.disabled = false;
@@ -423,12 +434,22 @@ $('import-apply').addEventListener('click', async () => {
 // ---- Start ----
 
 if (!isSecureContext || !('hid' in navigator)) {
-  $('unsupported').textContent = isSecureContext
-    ? 'This app needs a Chromium-based desktop browser such as Chrome, Edge, Opera, Brave or Arc.'
-    : 'This page must be opened over HTTPS.';
-  $('unsupported').hidden = false;
+  if (!isSecureContext) {
+    $('h-unsupported').textContent = 'Open this page over HTTPS';
+    $('unsupported').querySelector('p').textContent = 'The browser only allows WebHID on secure pages.';
+  }
+  $('copy-link').hidden = !navigator.clipboard;
+  $('copy-link').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+    } catch (error) {
+      return console.warn('Could not copy the link:', error);
+    }
+    $('copy-label').textContent = 'Link copied';
+    setTimeout(() => { $('copy-label').textContent = 'Copy page link'; }, 2000);
+  });
   $('device-bar').hidden = true;
-  $('main').hidden = true;
+  showView('unsupported');
 } else {
   render(); // fills the selects before the first connection
   $('connect').addEventListener('click', () => connect(() => Hypernova.request()));
