@@ -4,10 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#12151a">
+  <meta name="theme-color" content="#f6f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d10" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <title>Hypernova Web Driver</title>
+  <link rel="preload" href="fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -33,82 +35,118 @@
     <fieldset id="controls" disabled>
       <ul id="warnings" class="warn-list"></ul>
 
-      <section class="card" aria-labelledby="h-dpi">
-        <h2 id="h-dpi">DPI</h2>
-        <label class="row"><span>Number of stages</span>
-          <select data-key="dpiStageCount"></select></label>
-        <fieldset id="stages" class="stages">
-          <legend>Stages (select the active one)</legend>
-        </fieldset>
-        <p id="active-warning" class="warn" hidden>The active DPI stage is outside the stage count.
-          <button id="use-stage-1" type="button">Use stage 1</button></p>
-      </section>
-
-      <section class="card" aria-labelledby="h-performance">
-        <h2 id="h-performance">Performance</h2>
-        <label class="row"><span>Report rate</span>
-          <select data-key="reportRateHz"></select></label>
-      </section>
-
-      <section class="card" aria-labelledby="h-sensor">
-        <h2 id="h-sensor">Sensor</h2>
-        <label class="row"><span>Lift-off distance</span>
-          <select data-key="lodMm"></select></label>
-        <label class="row"><span>Sensor mode</span>
-          <select data-key="sensorMode"></select></label>
-        <label class="row"><span>Motion sync</span>
-          <input type="checkbox" data-key="motionSync"></label>
-        <label class="row"><span>Angle snapping</span>
-          <input type="checkbox" data-key="angleSnapping"></label>
-        <label class="row"><span>Ripple control</span>
-          <input type="checkbox" data-key="rippleControl"></label>
-        <label class="row"><span>Peak performance</span>
-          <input type="checkbox" data-key="peakPerformance"></label>
-        <label class="row"><span>Peak performance time</span>
-          <select data-key="peakPerformanceTime"></select></label>
-      </section>
-
-      <section class="card" aria-labelledby="h-buttons">
-        <h2 id="h-buttons">Buttons</h2>
-        <label class="row"><span>Debounce time</span>
-          <select data-key="debounceMs"></select></label>
-        <p id="debounce-warning" class="warn" hidden>Very low debounce can cause double clicks.</p>
-      </section>
-
-      <section class="card" aria-labelledby="h-power">
-        <h2 id="h-power">Power</h2>
-        <label class="row"><span>Mouse sleep time</span>
-          <select data-key="sleepSeconds"></select></label>
-      </section>
-
-      <section class="card" aria-labelledby="h-backup">
-        <h2 id="h-backup">Backup</h2>
-        <div class="row">
-          <span>Save the current settings to a file</span>
-          <button id="export" type="button">Export settings</button>
+      <section aria-labelledby="h-dpi">
+        <div class="heading col">
+          <h2 id="h-dpi">DPI</h2>
+          <p>Sensitivity presets stored on the mouse.</p>
         </div>
-        <label class="row"><span>Restore settings from a file</span>
-          <input id="import-file" type="file" accept="application/json"></label>
-        <div id="import-panel" class="panel" hidden>
-          <h3>Changes to apply</h3>
-          <ul id="import-changes"></ul>
-          <div id="import-skipped-box" hidden>
-            <h3>Skipped</h3>
-            <ul id="import-skipped"></ul>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Stages in use</span><span class="row-desc">How many stages the DPI button cycles through.</span></span>
+            <select data-key="dpiStageCount"></select>
+          </label>
+          <fieldset id="stages" class="stages">
+            <legend>Stages (select the active one)</legend>
+          </fieldset>
+          <p id="active-warning" class="warn" hidden>The active DPI stage is outside the stage count.
+            <button id="use-stage-1" type="button">Use stage 1</button></p>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-performance">
+        <div class="heading"><h2 id="h-performance">Performance</h2></div>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Report rate</span><span class="row-desc">How often the mouse reports, in Hz. 8000 Hz needs the cable.</span></span>
+            <select data-key="reportRateHz"></select>
+          </label>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-sensor">
+        <div class="heading"><h2 id="h-sensor">Sensor</h2></div>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Lift-off distance</span><span class="row-desc">Height at which the sensor stops tracking.</span></span>
+            <select data-key="lodMm"></select>
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Sensor mode</span><span class="row-desc">Low power or high performance. Fixed to Corded over the cable.</span></span>
+            <select data-key="sensorMode"></select>
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Motion sync</span><span class="row-desc">Aligns sensor frames with USB polling.</span></span>
+            <input class="switch" type="checkbox" data-key="motionSync">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Angle snapping</span><span class="row-desc">Straightens near-horizontal and near-vertical movement.</span></span>
+            <input class="switch" type="checkbox" data-key="angleSnapping">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Ripple control</span><span class="row-desc">Smooths jitter at high DPI.</span></span>
+            <input class="switch" type="checkbox" data-key="rippleControl">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Peak performance</span><span class="row-desc">Keeps the sensor in high-performance mode for a set time.</span></span>
+            <input class="switch" type="checkbox" data-key="peakPerformance">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Peak performance time</span><span class="row-desc">How long peak performance stays on.</span></span>
+            <select data-key="peakPerformanceTime"></select>
+          </label>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-buttons">
+        <div class="heading"><h2 id="h-buttons">Buttons</h2></div>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Debounce time</span><span class="row-desc">Minimum time between two clicks of one button.</span></span>
+            <select data-key="debounceMs"></select>
+          </label>
+          <p id="debounce-warning" class="warn" hidden>Very low debounce can cause double clicks.</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-power">
+        <div class="heading"><h2 id="h-power">Power</h2></div>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Mouse sleep time</span><span class="row-desc">Idle time before the mouse sleeps to save battery.</span></span>
+            <select data-key="sleepSeconds"></select>
+          </label>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-backup">
+        <div class="heading"><h2 id="h-backup">Backup</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="row-text"><span class="row-title">Export settings</span><span class="row-desc">Save every setting to a JSON file.</span></span>
+            <button id="export" type="button">Export</button>
           </div>
-          <div class="actions">
-            <button id="import-apply" type="button" class="primary">Apply</button>
-            <button id="import-cancel" type="button">Cancel</button>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Restore from a file</span><span class="row-desc">Shows what would change before anything is written.</span></span>
+            <input id="import-file" type="file" accept="application/json">
+          </label>
+          <div id="import-panel" class="panel" hidden>
+            <h3>Changes to apply</h3>
+            <ul id="import-changes"></ul>
+            <div id="import-skipped-box" hidden>
+              <h3>Skipped</h3>
+              <ul id="import-skipped"></ul>
+            </div>
+            <div class="actions">
+              <button id="import-apply" type="button" class="primary">Apply</button>
+              <button id="import-cancel" type="button">Cancel</button>
+            </div>
           </div>
         </div>
       </section>
     </fieldset>
-  </main>
 
-  <footer>
-    <p>Unofficial project. Not affiliated with Cosmic Byte.
-      <a href="https://github.com/ohmygodashish/hypernova" rel="noopener noreferrer">Source on GitHub</a></p>
-  </footer>
+    <p class="note">Note: this is an unofficial project and is not affiliated with Cosmic Byte.</p>
+  </main>
 
   <template id="stage-template">
     <div class="stage">

@@ -12,7 +12,7 @@ const UNITS = { reportRateHz: ' Hz', lodMm: ' mm', debounceMs: ' ms' };
 
 const LABELS = {
   reportRateHz: 'Report rate',
-  dpiStageCount: 'Number of stages',
+  dpiStageCount: 'Stages in use',
   dpiActiveStage: 'Active stage',
   lodMm: 'Lift-off distance',
   debounceMs: 'Debounce time',

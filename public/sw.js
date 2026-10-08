@@ -1,10 +1,11 @@
 // Offline app shell: network first, the last good copy when the network is gone.
 // ponytail: the cache name is bumped by hand when SHELL changes; build-time hashing if the file list ever grows.
-const CACHE = 'hypernova-v1';
+const CACHE = 'hypernova-v2';
 // "/index.html" is left out on purpose: the host redirects it to "/", and a cached redirect breaks navigations.
 const SHELL = [
   '/', '/style.css', '/app.js', '/device.js', '/protocol.js',
   '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png',
+  '/fonts/Geist-Variable.woff2',
 ];
 
 self.addEventListener('install', (event) => {
