@@ -81,7 +81,7 @@ The Hypernova Web Driver is a static web application that reads and changes the 
 - **REQ-009**: Backup: the app shall export current settings as a JSON file matching section 4.7.
 - **REQ-010**: Restore: the app shall import a JSON file matching section 4.7, validate it, show which settings differ, and on user confirmation write only the differing fields.
 - **REQ-011**: If `navigator.hid` is undefined, the app shall show a message that a Chromium-based desktop browser is required, and hide device controls.
-- **REQ-012**: The app shall show a persistent status line: disconnected / connecting / connected (wired or wireless) / busy / error message.
+- **REQ-012**: The app shall show a persistent status strip in the header island. It shows the connection state: not connected / connecting / connected with the connection type (wired or wireless), battery and firmware. Messages (busy, saved, info and warning notices, errors) appear in the same strip. Errors stay until dismissed. Other messages return to the connection state after about 2 s, pausing while the strip is hovered or the page is hidden. Restore progress stays until replaced.
 - **REQ-013**: The app shall be installable as a PWA (manifest + service worker per section 4.10) and its app shell shall load offline.
 - **REQ-014**: Values that do not match any known option shall be displayed as `Unknown (0xNN)` and their control shall remain unchanged until the user picks a valid option.
 - **REQ-015**: When the battery charging flag is `1`, the app shall display "Charging" and shall not display the percent byte, which is inflated while charging.
@@ -122,8 +122,11 @@ The Hypernova Web Driver is a static web application that reads and changes the 
 ### Guidelines and patterns
 
 - **GUD-001**: Keep protocol logic pure (no DOM, no WebHID, no timers) in `protocol.js` so it runs in Node tests.
-- **GUD-002**: Use native HTML controls (`select`, `input type="number|color|checkbox|range"`, `button`), each with a visible `label`. Keyboard operable.
-- **GUD-003**: Support light and dark themes via `prefers-color-scheme`.
+- **GUD-002**: Use native HTML controls (`input type="radio|number|color|checkbox"`, `select`, `button`), each with a visible `label`. Keyboard operable with a visible focus ring.
+- **GUD-003**: Support light and dark themes via `prefers-color-scheme`. No theme toggle.
+- **GUD-005**: Control choice. Button groups (native radios in a `fieldset`) for stages in use, report rate, lift-off distance and sensor mode. Themed native `select` (`appearance: base-select` in Chromium, the plain native menu elsewhere) for debounce, sleep time and peak performance time. Switches (checkboxes) for booleans. Six DPI stage tiles, each with a colour swatch, a DPI number field and an "active" pick; the active stage's colour is the page accent.
+- **GUD-006**: Font. Geist (variable woff2) is self-hosted in `public/fonts/` with its SIL OFL licence and precached by the service worker (SEC-001).
+- **GUD-007**: Unreadable values (REQ-014, SAF-008) show a warning banner at the top of the settings and an "Unknown (0xNN)" or "Invalid" option or tag on the control.
 - **GUD-004**: Mark deliberate simplifications in code with a `ponytail:` comment naming the limit and the upgrade path.
 - **PAT-001**: Table-driven fields. A single `FIELDS` table in `protocol.js` describes every setting (address, size, decode, encode, allowed values). Transport, UI, backup, and tests all use it. No address constants elsewhere.
 - **PAT-002**: Device is the source of truth. The UI never shows a value that was not read from the device (no optimistic updates).
@@ -137,12 +140,13 @@ hypernova/
 ├── public/                     # deployed as-is (Workers static assets directory)
 │   ├── index.html
 │   ├── style.css
-│   ├── app.js                  # UI only: DOM binding, events, status line
+│   ├── app.js                  # UI only: DOM binding, events, status strip
 │   ├── device.js               # WebHID transport, command queue, retries
 │   ├── protocol.js             # pure: packets, checksums, FIELDS, codecs
 │   ├── sw.js                   # service worker (network-first, cache fallback)
 │   ├── manifest.webmanifest
 │   ├── _headers                # response headers (section 4.9)
+│   ├── fonts/                  # Geist-Variable.woff2 + LICENSE.txt (SIL OFL)
 │   └── icons/                  # icon.svg, icon-192.png, icon-512.png (original artwork)
 ├── test/
 │   └── protocol.test.js        # node:test unit tests
@@ -343,7 +347,7 @@ A failing test aborts the build, so broken code is never deployed. Pushes to oth
 ### 4.10 PWA
 
 - `manifest.webmanifest`: `name` "Hypernova Web Driver", `short_name` "Hypernova", `start_url` "/", `scope` "/", `display` "standalone", `background_color` and `theme_color` matching the page, icons 192×192 and 512×512 PNG (`purpose: "any"`).
-- `sw.js`: precache the app shell (all files in `public/` except `_headers`). Fetch strategy is network-first with cache fallback, so a new deployment is picked up on the next online load. Cache name includes a version string. `activate` deletes caches with other names.
+- `sw.js`: precache the app shell (all files in `public/` except `_headers`, including `fonts/Geist-Variable.woff2`). Fetch strategy is network-first with cache fallback, so a new deployment is picked up on the next online load. Cache name includes a version string. `activate` deletes caches with other names.
 - The service worker only handles same-origin `GET` requests.
 
 ## 5. Acceptance Criteria
@@ -354,7 +358,7 @@ A failing test aborts the build, so broken code is never deployed. Pushes to oth
 - **AC-004**: Given the connected mouse, When the user sets stage 1 to 1600 DPI, Then flash `0x0C`-`0x0F` reads back `1F 1F 00 17` and the UI shows 1600.
 - **AC-005**: Given stage count 4 with active stage 3, When the user sets stage count to 2, Then `dpiActiveStage` is written to 1 before `dpiStageCount` is written to 2 (SAF-007).
 - **AC-006**: Given the mouse is idle and drops the first command, When the app reads settings, Then the dropped command is retried and the read completes without user action (SAF-005).
-- **AC-007**: Given the mouse is switched off, When the user changes a setting, Then after 4 attempts the status line shows an error, and the control shows the last value read from the device.
+- **AC-007**: Given the mouse is switched off, When the user changes a setting, Then after 4 attempts the status strip shows an error, and the control shows the last value read from the device.
 - **AC-008**: Given any code path, When a command other than `0x04`, `0x07`, `0x08`, `0x12` is passed to the transport, Then it throws and nothing is sent (SAF-001).
 - **AC-009**: Given Firefox or Safari, When the page loads, Then a message says a Chromium-based desktop browser is required and no device controls are shown.
 - **AC-010**: Given an exported backup, When the user changes several settings and then restores the backup, Then the differing settings are listed, and after confirmation a fresh read equals the backup.
@@ -438,7 +442,7 @@ Open:
 
 ### Compliance Dependencies
 
-- **COM-001**: The app is an unofficial interoperability tool. The README and page footer shall state it is not affiliated with Cosmic Byte. No vendor assets are redistributed (CON-005).
+- **COM-001**: The app is an unofficial interoperability tool. The README, and a small note at the bottom of the page, shall state it is unofficial and not affiliated with Cosmic Byte. No vendor assets are redistributed (CON-005).
 
 ## 9. Examples & Edge Cases
 
