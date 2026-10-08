@@ -126,7 +126,7 @@ h2 { text-wrap: balance; letter-spacing: -.01em; }
   gap: 8px;
   white-space: nowrap;
 }
-.btn:active { transform: scale(.97); }
+.btn:not(:disabled, :has(input:disabled)):active { transform: scale(.97); }
 .btn.icon { width: 40px; padding: 0; }
 .btn.device { min-width: 104px; }
 .btn.primary { background: var(--text); color: var(--bg); box-shadow: var(--lift); }
@@ -208,10 +208,10 @@ label.row { cursor: pointer; }
 @keyframes fade { from { opacity: 0; } }
 
 @media (hover: hover) and (pointer: fine) {
-  .btn:hover { background: var(--surface-2); }
-  .btn.primary:hover { background: color-mix(in srgb, var(--text) 85%, var(--bg)); }
+  .btn:not(:disabled, :has(input:disabled)):hover { background: var(--surface-2); }
+  .btn.primary:not(:disabled, :has(input:disabled)):hover { background: color-mix(in srgb, var(--text) 85%, var(--bg)); }
   .select select:hover, .select option:hover { background: var(--surface-2); }
-  .btn.danger:hover {
+  .btn.danger:not(:disabled):hover {
     background: var(--err-bg);
     color: var(--err-text);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--err-text) 35%, transparent), var(--lift);
@@ -219,7 +219,7 @@ label.row { cursor: pointer; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn:active, .switch:not(:disabled):active { transform: none; }
+  .btn:not(:disabled, :has(input:disabled)):active, .switch:not(:disabled):active { transform: none; }
   .switch::before { transition: background-color .2s ease; }
   .drop-in { transition-property: opacity; }
 }
@@ -725,4 +725,4 @@ main:is([data-view="settings"], [data-view="loading"]) { gap: 36px; padding: 32p
 }
 
 /* Disabled looks of the controls without their own (the switch and the button group dim themselves). */
-:is(.btn, .select select, .dpi, .swatch):disabled { opacity: .55; cursor: not-allowed; }
+:is(.btn, .select select, .dpi, .swatch):disabled, .btn:has(input:disabled) { opacity: .55; cursor: not-allowed; }
