@@ -10,7 +10,7 @@ This is an unofficial community project. It is not affiliated with, endorsed by,
 2. Open <https://hypernova.ohmygodashish.workers.dev/>.
 3. Click **Connect** and choose the mouse in the browser prompt.
 
-The page reconnects by itself when you reload it. After you unplug the mouse or its dongle, or restart the browser, click **Connect** again: the mouse has no USB serial number, so the browser cannot remember it.
+The status strip in the header shows the connection (wired or wireless), battery and firmware, and confirms each change as it is saved. Disconnect closes the mouse. The page reconnects by itself when you reload it. After you unplug the mouse or its dongle, or restart the browser, click **Connect** again: the mouse has no USB serial number, so the browser cannot remember it.
 
 The app only sends four commands: read settings, write a known setting, read battery, and read version. It verifies every write by reading the value back.
 
@@ -47,7 +47,7 @@ Unplug and replug the mouse (or its dongle) afterwards.
 - Peak performance and its time
 - Debounce: 0-20 ms
 - Mouse sleep time: 10 s to 40 min
-- Backup and restore of all settings to a JSON file
+- Backup and restore of all settings to a JSON file (restore lists the changes for review first)
 - Battery level and firmware version display
 
 Not supported: button remapping, macros, RGB lighting and DPI LED effects, firmware updates, and dongle pairing.

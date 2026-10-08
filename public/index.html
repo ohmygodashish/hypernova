@@ -4,118 +4,242 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#12151a">
+  <meta name="theme-color" content="#f6f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d10" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <title>Hypernova Web Driver</title>
+  <link rel="preload" href="fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Hypernova Web Driver</h1>
-    <div id="device-bar">
-      <div class="bar">
-        <button id="connect" type="button" class="primary">Connect</button>
-        <dl class="info">
-          <div><dt>Connection</dt><dd id="connection">–</dd></div>
-          <div><dt>Firmware</dt><dd id="firmware">–</dd></div>
-          <div><dt>Battery</dt><dd id="battery">–</dd></div>
-        </dl>
-      </div>
-      <p id="status" role="status" aria-live="polite"><span id="status-text">Not connected</span> <a id="linux-help" href="https://github.com/ohmygodashish/hypernova#linux" hidden>Linux setup</a></p>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 512 512" width="30" height="30" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#12151a"></rect><polygon points="256,64 300,212 448,256 300,300 256,448 212,300 64,256 212,212" fill="#7cb8ff"></polygon></svg>
+      <h1>Hypernova</h1>
+    </div>
+    <div id="strip" class="strip" role="status" data-kind="status">
+      <span id="strip-status" class="strip-layer strip-status">
+        <span id="st-idle" class="st muted"><span class="dot idle"></span>Not connected</span>
+        <span id="st-connecting" class="st muted fade-in" hidden><span class="dot busy"></span>Connecting…</span>
+        <span id="st-ready" class="ready" aria-live="off" hidden>
+          <span class="st fade-in"><span class="dot"></span><span id="connection"></span></span>
+          <span class="vr fade-in" aria-hidden="true"></span>
+          <span class="st muted fade-in"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 7h11a2 2 0 0 1 2 2v.5a.5 .5 0 0 0 .5 .5a.5 .5 0 0 1 .5 .5v3a.5 .5 0 0 1 -.5 .5a.5 .5 0 0 0 -.5 .5v.5a2 2 0 0 1 -2 2h-11a2 2 0 0 1 -2 -2v-6a2 2 0 0 1 2 -2"></path></svg><span id="battery"></span></span>
+          <span class="vr fade-in" aria-hidden="true"></span>
+          <span class="muted fade-in">Firmware <span id="firmware"></span></span>
+        </span>
+      </span>
+      <span id="strip-msg" class="strip-layer strip-msg off" inert></span>
+    </div>
+    <div class="tools">
+      <a class="btn icon" href="https://github.com/ohmygodashish/hypernova" aria-label="Source on GitHub" title="Source on GitHub"><svg class="gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg></a>
+      <button id="disconnect" class="btn device danger" type="button" hidden>Disconnect</button>
     </div>
   </header>
 
-  <p id="unsupported" class="notice" role="alert" hidden></p>
-
   <main id="main">
-    <fieldset id="controls" disabled>
-      <ul id="warnings" class="warn-list"></ul>
+    <section id="unsupported" class="card view-card" aria-labelledby="h-unsupported" role="alert" hidden>
+      <span class="tile"><svg class="ic" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10z"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg></span>
+      <h2 id="h-unsupported">This browser can't reach the mouse</h2>
+      <p>The page talks to the mouse through WebHID, which only Chromium-based desktop browsers support. Open this page in Chrome, Edge, Opera, Brave or Arc on a computer.</p>
+      <button id="copy-link" class="btn" type="button"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z"></path><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"></path></svg><span id="copy-label">Copy page link</span></button>
+    </section>
 
-      <section class="card" aria-labelledby="h-dpi">
-        <h2 id="h-dpi">DPI</h2>
-        <label class="row"><span>Number of stages</span>
-          <select data-key="dpiStageCount"></select></label>
-        <fieldset id="stages" class="stages">
-          <legend>Stages (select the active one)</legend>
-        </fieldset>
-        <p id="active-warning" class="warn" hidden>The active DPI stage is outside the stage count.
-          <button id="use-stage-1" type="button">Use stage 1</button></p>
+    <div id="empty" hidden>
+      <section class="card view-card" aria-labelledby="h-connect">
+        <svg class="logo lg" viewBox="0 0 512 512" width="56" height="56" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#12151a"></rect><polygon points="256,64 300,212 448,256 300,300 256,448 212,300 64,256 212,212" fill="#7cb8ff"></polygon></svg>
+        <h2 id="h-connect">Connect your mouse</h2>
+        <p>Plug in the mouse with its cable, or plug in its 4K dongle. Then click Connect and choose the mouse in the list your browser shows.</p>
+        <button id="connect" class="btn primary" type="button">Connect</button>
       </section>
+      <ul class="tips">
+        <li><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg>Close the Cosmic Byte app first. It can overwrite changes you make here.</li>
+        <li><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg>After you unplug the mouse or restart the browser, click Connect again. The browser can't remember this mouse.</li>
+        <li><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg><span>On Linux, install the udev rule first. <a class="link" href="https://github.com/ohmygodashish/hypernova#linux">Linux setup</a></span></li>
+      </ul>
+    </div>
 
-      <section class="card" aria-labelledby="h-performance">
-        <h2 id="h-performance">Performance</h2>
-        <label class="row"><span>Report rate</span>
-          <select data-key="reportRateHz"></select></label>
-      </section>
-
-      <section class="card" aria-labelledby="h-sensor">
-        <h2 id="h-sensor">Sensor</h2>
-        <label class="row"><span>Lift-off distance</span>
-          <select data-key="lodMm"></select></label>
-        <label class="row"><span>Sensor mode</span>
-          <select data-key="sensorMode"></select></label>
-        <label class="row"><span>Motion sync</span>
-          <input type="checkbox" data-key="motionSync"></label>
-        <label class="row"><span>Angle snapping</span>
-          <input type="checkbox" data-key="angleSnapping"></label>
-        <label class="row"><span>Ripple control</span>
-          <input type="checkbox" data-key="rippleControl"></label>
-        <label class="row"><span>Peak performance</span>
-          <input type="checkbox" data-key="peakPerformance"></label>
-        <label class="row"><span>Peak performance time</span>
-          <select data-key="peakPerformanceTime"></select></label>
-      </section>
-
-      <section class="card" aria-labelledby="h-buttons">
-        <h2 id="h-buttons">Buttons</h2>
-        <label class="row"><span>Debounce time</span>
-          <select data-key="debounceMs"></select></label>
-        <p id="debounce-warning" class="warn" hidden>Very low debounce can cause double clicks.</p>
-      </section>
-
-      <section class="card" aria-labelledby="h-power">
-        <h2 id="h-power">Power</h2>
-        <label class="row"><span>Mouse sleep time</span>
-          <select data-key="sleepSeconds"></select></label>
-      </section>
-
-      <section class="card" aria-labelledby="h-backup">
-        <h2 id="h-backup">Backup</h2>
-        <div class="row">
-          <span>Save the current settings to a file</span>
-          <button id="export" type="button">Export settings</button>
+    <div id="loading" aria-busy="true" hidden>
+      <section>
+        <div class="heading col">
+          <h2>DPI</h2>
+          <p>Sensitivity presets stored on the mouse.</p>
         </div>
-        <label class="row"><span>Restore settings from a file</span>
-          <input id="import-file" type="file" accept="application/json"></label>
-        <div id="import-panel" class="panel" hidden>
-          <h3>Changes to apply</h3>
-          <ul id="import-changes"></ul>
-          <div id="import-skipped-box" hidden>
-            <h3>Skipped</h3>
-            <ul id="import-skipped"></ul>
+        <div class="card">
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-ctrl"></span>
           </div>
-          <div class="actions">
-            <button id="import-apply" type="button" class="primary">Apply</button>
-            <button id="import-cancel" type="button">Cancel</button>
+          <div class="skel-stages">
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+            <div class="skel-stage"><span class="skel-name"><span class="skel sk-dot"></span><span class="skel sk-name"></span></span><span class="skel sk-num"></span><span class="skel sk-pill"></span></div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="heading"><h2>Performance</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-ctrl"></span>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="heading"><h2>Sensor</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-ctrl"></span>
+          </div>
+          <div class="row">
+            <span class="skel-text"><span class="skel sk-title"></span><span class="skel sk-desc"></span></span>
+            <span class="skel sk-switch"></span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <fieldset id="settings" hidden disabled>
+      <ul id="warnings"></ul>
+
+      <section aria-labelledby="h-dpi">
+        <div class="heading col">
+          <h2 id="h-dpi">DPI</h2>
+          <p>Sensitivity presets stored on the mouse.</p>
+        </div>
+        <div class="card">
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-stages">Stages in use</span><span class="row-desc">How many stages the DPI button cycles through.</span></span>
+            <fieldset class="seg" data-key="dpiStageCount" aria-labelledby="l-stages"></fieldset>
+          </div>
+          <div id="active-warning" class="banner drop-in" role="alert" hidden>
+            <svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>
+            <span id="active-text"></span>
+            <button id="use-stage-1" class="btn" type="button">Use stage 1</button>
+          </div>
+          <div class="stages" id="stages"></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-performance">
+        <div class="heading"><h2 id="h-performance">Performance</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-rate">Report rate</span><span class="row-desc">How often the mouse reports, in Hz. 8000 Hz needs the cable.</span></span>
+            <fieldset class="seg" data-key="reportRateHz" aria-labelledby="l-rate"></fieldset>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-sensor">
+        <div class="heading"><h2 id="h-sensor">Sensor</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-lod">Lift-off distance</span><span class="row-desc">Height at which the sensor stops tracking.</span></span>
+            <fieldset class="seg" data-key="lodMm" aria-labelledby="l-lod"></fieldset>
+          </div>
+          <div class="row">
+            <span class="row-text"><span class="row-title" id="l-mode">Sensor mode</span><span class="row-desc">Low power or high performance. Fixed to Corded over the cable.</span></span>
+            <fieldset class="seg" data-key="sensorMode" aria-labelledby="l-mode"></fieldset>
+          </div>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Motion sync</span><span class="row-desc">Aligns sensor frames with USB polling.</span></span>
+            <input class="switch" type="checkbox" data-key="motionSync">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Angle snapping</span><span class="row-desc">Straightens near-horizontal and near-vertical movement.</span></span>
+            <input class="switch" type="checkbox" data-key="angleSnapping">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Ripple control</span><span class="row-desc">Smooths jitter at high DPI.</span></span>
+            <input class="switch" type="checkbox" data-key="rippleControl">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Peak performance</span><span class="row-desc">Keeps the sensor in high-performance mode for a set time.</span></span>
+            <input class="switch" type="checkbox" data-key="peakPerformance">
+          </label>
+          <label class="row">
+            <span class="row-text"><span class="row-title">Peak performance time</span><span class="row-desc">How long peak performance stays on.</span></span>
+            <span class="select"><select data-key="peakPerformanceTime"></select><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></span>
+          </label>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-buttons">
+        <div class="heading"><h2 id="h-buttons">Buttons</h2></div>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Debounce time</span><span class="row-desc">Minimum time between two clicks of one button.</span></span>
+            <span class="select"><select data-key="debounceMs"></select><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></span>
+          </label>
+          <p id="debounce-warning" class="banner drop-in" hidden><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>Very low debounce can cause double clicks.</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-power">
+        <div class="heading"><h2 id="h-power">Power</h2></div>
+        <div class="card">
+          <label class="row">
+            <span class="row-text"><span class="row-title">Mouse sleep time</span><span class="row-desc">Idle time before the mouse sleeps to save battery.</span></span>
+            <span class="select"><select data-key="sleepSeconds"></select><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></span>
+          </label>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-backup">
+        <div class="heading"><h2 id="h-backup">Backup</h2></div>
+        <div class="card">
+          <div class="row">
+            <span class="row-text"><span class="row-title">Export settings</span><span class="row-desc">Save every setting to a JSON file.</span></span>
+            <button id="export" class="btn" type="button"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 11l5 5l5 -5"></path><path d="M12 4l0 12"></path></svg>Export</button>
+          </div>
+          <div class="row">
+            <span class="row-text"><span class="row-title">Restore from a file</span><span id="import-line" class="row-desc">Shows what would change before anything is written.</span></span>
+            <label class="btn"><input id="import-file" class="file-input" type="file" accept="application/json"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"></path><path d="M7 9l5 -5l5 5"></path><path d="M12 4l0 12"></path></svg>Choose file…</label>
+          </div>
+          <div id="import-panel" class="review drop-in" role="region" aria-labelledby="import-heading" hidden>
+            <h3 id="import-heading"></h3>
+            <ul id="import-changes" class="diff"></ul>
+            <div id="import-skipped-box" class="skipped" hidden>
+              <h3>Skipped</h3>
+              <ul id="import-skipped"></ul>
+            </div>
+            <div class="review-actions">
+              <button id="import-apply" class="btn primary" type="button"></button>
+              <button id="import-cancel" class="btn" type="button">Cancel</button>
+            </div>
           </div>
         </div>
       </section>
     </fieldset>
+
+    <p class="note">Note: this is an unofficial project and is not affiliated with Cosmic Byte.</p>
   </main>
 
-  <footer>
-    <p>Unofficial project. Not affiliated with Cosmic Byte.
-      <a href="https://github.com/ohmygodashish/hypernova" rel="noopener noreferrer">Source on GitHub</a></p>
-  </footer>
-
+  <template id="strip-parts">
+    <svg data-part="check" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12l5 5l10 -10"></path></svg>
+    <span data-part="busy" class="dot busy" aria-hidden="true"></span>
+    <span data-part="idle" class="dot idle" aria-hidden="true"></span>
+    <svg data-part="mouse" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 7a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4h-4a4 4 0 0 1 -4 -4z"></path><path d="M12 7l0 4"></path></svg>
+    <svg data-part="alert" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>
+    <svg data-part="arrow" class="ic" viewBox="0 0 24 24" width="16" height="16" aria-label="changes to" role="img"><path d="M5 12l14 0"></path><path d="M13 18l6 -6"></path><path d="M13 6l6 6"></path></svg>
+    <svg data-part="error" class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+    <button data-part="x" class="strip-x" type="button" aria-label="Dismiss"><svg class="ic" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg></button>
+    <span data-part="save" class="msg-swap">
+      <span class="is-saving"><span class="dot busy" aria-hidden="true"></span>Saving…</span>
+      <span class="is-saved"><svg class="ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12l5 5l10 -10"></path></svg>Saved</span>
+    </span>
+  </template>
   <template id="stage-template">
     <div class="stage">
-      <label class="stage-name"><input type="radio" name="active-stage" data-key="dpiActiveStage"> <span></span></label>
-      <label class="field">DPI <input type="number" min="50" max="26000" step="50" inputmode="numeric"></label>
-      <span class="xy" title="X and Y DPI differ in the mouse. Editing sets both."></span>
-      <label class="field">Colour <input type="color"></label>
+      <span class="stage-name"><input class="swatch" type="color"><span></span></span>
+      <label class="stage-dpi"><input class="dpi" type="number" min="50" max="26000" step="50" inputmode="numeric"><span>DPI</span><span class="xy" title="X and Y DPI differ in the mouse. Editing sets both."></span></label>
+      <label class="pick"><input type="radio" name="active-stage" data-key="dpiActiveStage"><span class="off">Set active</span><span class="on"><svg class="ic" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M5 12l5 5l10 -10"></path></svg>Active</span></label>
     </div>
   </template>
 </body>

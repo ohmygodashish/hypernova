@@ -5,14 +5,14 @@ import { Hypernova } from './device.js';
 import { FIELDS, STAGES, diffSettings, getSetting, toBackup, parseBackup } from './protocol.js';
 
 const POLL_MS = 60_000;
-const WAITING = 'Waiting for the mouse… move it to wake it.';
-const OPEN_FAILED = 'Could not open the mouse. On Linux, install the udev rule (see README).';
-const CONNECTION = { wired: 'Wired', wireless: 'Wireless (4K dongle)' };
+const WAITING = 'Waiting for the mouse. Move it to wake it.';
+const OPEN_FAILED = 'Could not open the mouse. On Linux, install the udev rule first.';
+const CONNECTION = { wired: 'Wired', wireless: 'Wireless · 4K dongle' };
 const UNITS = { reportRateHz: ' Hz', lodMm: ' mm', debounceMs: ' ms' };
 
 const LABELS = {
   reportRateHz: 'Report rate',
-  dpiStageCount: 'Number of stages',
+  dpiStageCount: 'Stages in use',
   dpiActiveStage: 'Active stage',
   lodMm: 'Lift-off distance',
   debounceMs: 'Debounce time',
@@ -41,37 +41,149 @@ let errors = []; // unreadable fields from the last readSettings
 let connecting = false;
 let replugged = false; // a mouse showed up while a connect attempt was under way
 let pollTimer = null;
+let polling = false; // the background battery read is under way
 let plan = null; // an import waiting for confirmation: { keys, parsed, skipped }
 const pending = new Set(); // controls with a write in flight
 
 // ---- Controls ----
 
-const controls = $('controls');
-const statusText = $('status-text');
+const controls = $('settings');
 
-// Six stage rows from the template; rows past the stage count are hidden by render().
+// Six stage tiles from the template; tiles past the stage count are hidden by render().
 for (let i = 0; i < STAGES; i++) {
-  const row = $('stage-template').content.firstElementChild.cloneNode(true);
-  row.querySelector('.stage-name span').textContent = `Stage ${i + 1}`;
-  row.querySelector('[type=radio]').value = i;
+  const tile = $('stage-template').content.firstElementChild.cloneNode(true);
+  tile.style.viewTransitionName = `stage-${i + 1}`; // CSSOM, so CSP allows it
+  tile.style.viewTransitionClass = 'stage';
+  tile.querySelector('.stage-name span').textContent = `Stage ${i + 1}`;
+  tile.querySelector('[type=radio]').value = i;
+  tile.querySelector('.pick input').ariaLabel = `Make stage ${i + 1} active`;
   for (const [selector, prop] of [['[type=number]', 'dpi'], ['[type=color]', 'color']]) {
-    const input = row.querySelector(selector);
+    const input = tile.querySelector(selector);
     input.dataset.key = `dpiStages.${i}.${prop}`;
-    input.setAttribute('aria-label', LABELS[input.dataset.key]); // the visible "DPI" / "Colour" is the same in every row
+    input.ariaLabel = LABELS[input.dataset.key];
   }
-  $('stages').append(row);
+  $('stages').append(tile);
 }
-const rows = [...$('stages').querySelectorAll('.stage')];
-const radios = [...document.querySelectorAll('[type=radio]')]; // all write dpiActiveStage
+const tiles = [...$('stages').children];
+const radios = [...$('stages').querySelectorAll('[type=radio]')]; // all write dpiActiveStage
 const byKey = {};
 for (const el of document.querySelectorAll('[data-key]')) {
   if (el.type !== 'radio') byKey[el.dataset.key] = el;
 }
 
-function setStatus(text, help = false) {
-  statusText.textContent = text;
-  $('linux-help').hidden = !help;
+// Shows one of the four page views; main[data-view] sets the layout.
+function showView(name) {
+  for (const id of ['unsupported', 'empty', 'loading', 'settings']) $(id).hidden = id !== name;
+  $('main').dataset.view = name;
 }
+
+// The sections and the note rise one after another (--i drives the delay in style.css).
+document.querySelectorAll('#settings > section, .note').forEach((el, i) => el.style.setProperty('--i', i));
+
+// ---- The island: status and messages share one strip that springs between sizes ----
+
+const SPRING = 'linear(0,0.019,0.068,0.137,0.219,0.307,0.397,0.485,0.568,0.644,0.714,0.775,0.828,0.873,0.911,0.942,0.967,0.986,1.001,1.012,1.02,1.025,1.027,1.028,1.028,1.027,1.025,1.023,1.02,1.018,1.015,1.013,1.011,1.009,1.007,1.005,1.004,1.003,1.002,1.001,1)';
+const strip = $('strip');
+const statusLayer = $('strip-status');
+const msgLayer = $('strip-msg');
+let morphAnim = null;
+let morphing = false;
+let hideTimer = 0;
+let holding = false; // the pointer is over the strip
+let autoHide = false; // the message showing goes back to the status by itself
+
+// Runs update() and springs the strip from its old size to its new one. Nested calls join the outer one.
+function morph(update) {
+  if (morphing) return update();
+  const from = strip.getBoundingClientRect();
+  morphAnim?.cancel();
+  morphing = true;
+  try {
+    update();
+  } finally {
+    morphing = false;
+  }
+  const to = strip.getBoundingClientRect();
+  const same = Math.abs(to.width - from.width) < 1 && Math.abs(to.height - from.height) < 1;
+  if (same || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  morphAnim = strip.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], { duration: 650, easing: SPRING });
+}
+
+// Shows one layer and takes the other out of the tab order and the accessibility tree.
+function showLayer(message) {
+  statusLayer.classList.toggle('off', message);
+  statusLayer.inert = message;
+  msgLayer.classList.toggle('off', !message);
+  msgLayer.inert = !message;
+}
+
+// state: 'idle', 'connecting' or 'ready'. Disconnect is offered only while ready.
+function stripStatus(state) {
+  morph(() => {
+    for (const name of ['idle', 'connecting', 'ready']) $(`st-${name}`).hidden = name !== state;
+    $('disconnect').hidden = state !== 'ready';
+  });
+}
+
+const part = (name) => $('strip-parts').content.querySelector(`[data-part="${name}"]`).cloneNode(true);
+
+function hideMessage() {
+  clearTimeout(hideTimer);
+  autoHide = false;
+  morph(() => {
+    strip.dataset.kind = 'status';
+    showLayer(false);
+  });
+}
+
+// Messages return to the status after 2.2 s, but wait while the pointer is over the strip or the tab is hidden.
+function hideLater() {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => (document.hidden || holding ? hideLater() : hideMessage()), 2200);
+}
+
+// nodes: the new content, or null to keep what the layer holds. kind: status, saving, saved, info, warn or error.
+function present(kind, nodes, auto) {
+  clearTimeout(hideTimer);
+  const replacing = nodes && !msgLayer.classList.contains('off');
+  morph(() => {
+    strip.dataset.kind = kind;
+    msgLayer.dataset.msg = kind;
+    if (nodes) msgLayer.replaceChildren(...nodes);
+    showLayer(true);
+  });
+  // One message replacing another: blur the new content in, like the layer cross-fade.
+  if (replacing) msgLayer.animate([{ opacity: 0, filter: 'blur(4px)' }, { opacity: 1, filter: 'blur(0px)' }], { duration: 250, easing: 'cubic-bezier(0.23,1,0.32,1)' });
+  autoHide = auto;
+  if (auto) hideLater();
+}
+
+// icon: check, busy, idle, mouse, alert or error.
+function say(kind, icon, text, link = false) {
+  const body = Object.assign(document.createElement('span'), { textContent: text });
+  if (link) body.append(' ', Object.assign(document.createElement('a'), { href: 'https://github.com/ohmygodashish/hypernova#linux', textContent: 'Linux setup' }));
+  const nodes = [part(icon), body];
+  if (kind === 'error') {
+    const close = part('x');
+    close.addEventListener('click', hideMessage);
+    nodes.push(close);
+  }
+  present(kind, nodes, kind !== 'error' && icon !== 'busy'); // errors and progress stay until replaced or dismissed
+}
+const fail = (text, link) => say('error', 'error', text, link);
+const done = (text) => say('saved', 'check', text);
+
+// phase: 'saving' (stays) or 'saved' (then back to the status). Saving to Saved swaps inside the same layer.
+function showSave(phase) {
+  const swapping = !msgLayer.classList.contains('off') && msgLayer.querySelector('.msg-swap');
+  present(phase, swapping ? null : [part('save')], phase === 'saved');
+}
+
+strip.addEventListener('mouseenter', () => { holding = true; });
+strip.addEventListener('mouseleave', () => {
+  holding = false;
+  if (autoHide) hideLater();
+});
 
 // ---- Display ----
 
@@ -95,38 +207,90 @@ function unreadable(key) {
   return `Unknown (0x${error.raw[0].toString(16).toUpperCase().padStart(2, '0')})`;
 }
 
-// value: undefined before the first read, null when the mouse's value could not be decoded.
-function renderSelect(select, field, value) {
+// What a select or a button group offers for a field. value: undefined before the first read, null when the
+// mouse's value could not be decoded. blocked(pair): not choosable now (8000 Hz off the cable). odd: the value
+// is shown but cannot be chosen (unreadable, read-only, or blocked): { human, text, note }.
+function choicesFor(field, value) {
   const wired = device?.connection === 'wired';
-  let pairs = field.options ?? Array.from({ length: field.max - field.min + 1 }, (_, i) => [field.min + i]);
-  if (field.key === 'reportRateHz' && !wired) pairs = pairs.filter(([hz]) => hz !== 8000);
   const corded = field.key === 'sensorMode' && wired; // fixed over the cable
-  if (corded) {
-    pairs = field.readOnlyOptions;
-    value = 'Corded';
-  }
-  select.disabled = corded;
-
-  const items = pairs.map(([human]) => new Option(optionLabel(field.key, human), human));
-  const offered = pairs.some(([human]) => human === value);
-  if (value !== undefined && !offered) {
-    // Selected but not choosable: unreadable, or valid but not offered on this connection.
+  const pairs = corded ? field.readOnlyOptions : field.options ?? Array.from({ length: field.max - field.min + 1 }, (_, i) => [field.min + i]);
+  if (corded) value = 'Corded';
+  const blocked = ([human]) => field.key === 'reportRateHz' && human === 8000 && !wired;
+  let odd = null;
+  if (value !== undefined && !pairs.some((pair) => pair[0] === value && !blocked(pair))) {
     const note = field.options?.some(([human]) => human === value) ? 'cable only' : 'read-only';
-    const text = value === null ? unreadable(field.key) : `${optionLabel(field.key, value)} (${note})`;
-    const placeholder = new Option(text, '');
+    odd = value === null ? { human: null, text: unreadable(field.key), note: '' } : { human: value, text: optionLabel(field.key, value), note };
+  }
+  return { pairs, blocked, corded, value, odd };
+}
+
+function renderSelect(select, field, value) {
+  const { pairs, blocked, corded, value: shown, odd } = choicesFor(field, value);
+  select.disabled = corded;
+  const items = pairs.filter((pair) => !blocked(pair)).map(([human]) => new Option(optionLabel(field.key, human), human));
+  if (odd) {
+    const placeholder = new Option(odd.note ? `${odd.text} (${odd.note})` : odd.text, '');
     placeholder.disabled = true;
     items.unshift(placeholder);
   }
   select.replaceChildren(...items);
-  select.value = offered ? String(value) : '';
+  select.value = odd ? '' : String(shown ?? '');
+}
+
+// Button group text and accessible name per option (the select shows optionLabel).
+const SEG_NAMES = { LP: 'Low power', HP: 'High performance' };
+const segText = (key, human) => (key === 'lodMm' ? optionLabel(key, human) : String(human));
+
+function segOption(key, human, text, { name, title, checked, disabled, odd }) {
+  const input = Object.assign(document.createElement('input'), { type: 'radio', name: key, value: human ?? '', checked, disabled });
+  if (name) input.setAttribute('aria-label', name);
+  const label = Object.assign(document.createElement('label'), { className: odd ? 'odd' : '', title: title ?? '' });
+  label.append(input, Object.assign(document.createElement('span'), { textContent: text }));
+  return label;
+}
+
+function renderSegments(fieldset, field, value) {
+  const { pairs, blocked, corded, value: shown, odd } = choicesFor(field, value);
+  const key = field.key;
+  fieldset.disabled = corded;
+  const items = pairs.map((pair) => {
+    const [human] = pair;
+    const cableOnly = blocked(pair);
+    return segOption(key, human, segText(key, human), {
+      name: cableOnly ? `${human} Hz, cable only` : key === 'reportRateHz' ? `${human} Hz` : SEG_NAMES[human],
+      title: cableOnly ? 'Cable only' : '',
+      checked: human === shown,
+      disabled: cableOnly,
+      odd: cableOnly && odd?.human === human,
+    });
+  });
+  // A value that is not one of the options gets an extra first one.
+  if (odd && !pairs.some(([human]) => human === odd.human)) {
+    items.unshift(segOption(key, null, odd.text, { checked: true, disabled: true, odd: true }));
+  }
+  // Rebuild only when the options change, so the thumb keeps sliding and focus stays put. outerHTML leaves out `checked`.
+  const shape = items.map((label) => label.outerHTML).join('');
+  if (fieldset.shape !== shape) {
+    fieldset.shape = shape;
+    fieldset.style.setProperty('--n', items.length);
+    fieldset.replaceChildren(Object.assign(document.createElement('span'), { className: 'seg-thumb', ariaHidden: 'true' }), ...items);
+  } else {
+    fieldset.querySelectorAll('input').forEach((input, i) => { input.checked = items[i].firstElementChild.checked; });
+  }
 }
 
 function renderControl(el, field, value) {
   if (el.tagName === 'SELECT') {
     renderSelect(el, field, value);
+  } else if (el.tagName === 'FIELDSET') {
+    renderSegments(el, field, value);
   } else if (field.kind === 'bool') {
     el.checked = value === true;
     el.indeterminate = value === null;
+    // An unreadable value is tagged on the row title until it is repaired.
+    const title = el.closest('.row').querySelector('.row-title');
+    title.querySelector('.tag')?.remove();
+    if (value === null) title.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: unreadable(field.key) }));
   } else if (field.kind === 'color') {
     // ponytail: a colour that could not be read shows black, and picking black again fires no change event.
     el.value = value ?? '#000000';
@@ -138,12 +302,24 @@ function renderControl(el, field, value) {
   }
 }
 
+let morphCount = false; // the stage count was just clicked with a pointer: the next render morphs the tiles
+
 // Draws every control from device.settings. Controls with a write in flight keep what they show.
 function render() {
   const settings = device?.settings;
   const wired = device?.connection === 'wired';
   const count = settings?.dpiStageCount ?? STAGES;
-  rows.forEach((row, i) => { row.hidden = i >= count; });
+  const layout = () => {
+    $('stages').dataset.count = count;
+    tiles.forEach((tile, i) => { tile.hidden = i >= count; });
+  };
+  // Only a pointer click morphs; keyboard, reduced motion, and counts that arrive by restore or refresh just switch.
+  if (morphCount && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches && $('stages').dataset.count !== String(count)) {
+    document.startViewTransition(layout);
+  } else {
+    layout();
+  }
+  morphCount = false;
   for (const [key, el] of Object.entries(byKey)) {
     if (!pending.has(el)) renderControl(el, fieldOf(key), getSetting(settings, key));
   }
@@ -152,11 +328,23 @@ function render() {
   }
 
   const stuck = errors.filter(({ key }) => getSetting(settings, key) === null && !(wired && key === 'sensorMode'));
-  $('warnings').replaceChildren(...stuck.map(({ key }) => (
-    li(`${LABELS[key]}: ${unreadable(key)}. Choose a new value to repair it.`)
-  )));
+  const texts = stuck.map(({ key }) => `${LABELS[key]}: ${unreadable(key)}. Choose a new value to repair it.`);
+  // Redraw only when the list changes, so the banners do not drop in again after every write.
+  if (texts.join('\n') !== [...$('warnings').children].map((item) => item.textContent).join('\n')) {
+    $('warnings').replaceChildren(...texts.map((text) => {
+      const item = Object.assign(li(text), { className: 'banner drop-in' });
+      item.prepend(part('alert'));
+      return item;
+    }));
+  }
   const { dpiActiveStage: active, dpiStageCount: total } = settings ?? {};
-  $('active-warning').hidden = !(Number.isInteger(active) && Number.isInteger(total) && active >= total);
+  const outside = Number.isInteger(active) && Number.isInteger(total) && active >= total;
+  $('active-warning').hidden = !outside;
+  if (outside) $('active-text').textContent = `The mouse's active stage is stage ${active + 1}, but only ${total} stage${total === 1 ? ' is' : 's are'} in use.`;
+  // The active stage's colour tints the card; neutral when it is unknown or outside the count.
+  const accent = Number.isInteger(active) && active < count ? getSetting(settings, `dpiStages.${active}.color`) : null;
+  if (accent) document.documentElement.style.setProperty('--accent', accent);
+  else document.documentElement.style.removeProperty('--accent');
   $('debounce-warning').hidden = !(Number.isInteger(settings?.debounceMs) && settings.debounceMs <= 3);
 }
 
@@ -164,15 +352,20 @@ const batteryText = ({ percent, charging }) => (charging ? 'Charging' : `${perce
 
 // ---- Connecting ----
 
-// Forgets the mouse and locks the page.
+// Forgets the mouse and shows the connect card.
 function detach(message) {
   device = null;
+  morphCount = false;
+  showView('empty');
   clearInterval(pollTimer);
   controls.disabled = true;
-  plan = null;
-  $('import-panel').hidden = true;
-  $('connection').textContent = $('firmware').textContent = $('battery').textContent = '–';
-  setStatus(message);
+  closePlan();
+  $('disconnect').disabled = false;
+  morph(() => {
+    stripStatus('idle');
+    if (message) say('info', 'idle', message);
+    else hideMessage();
+  });
 }
 
 // open: Hypernova.request or Hypernova.reconnect.
@@ -183,19 +376,14 @@ async function connect(open) {
     let next;
     try {
       next = await open();
-      if (next && device) {
-        // Picking another device (or the same one again): let go of the old instance first, then reopen.
-        const old = device;
-        detach('Connecting…');
-        await old.close().catch((error) => console.warn('Could not close the previous mouse:', error)); // not fatal
-        await next.open();
-      }
     } catch (error) {
       console.error(error);
-      setStatus(OPEN_FAILED, true);
+      fail(OPEN_FAILED, true);
+      showView('empty');
       return;
     }
     if (next) await start(next);
+    else showView('empty'); // cancelled, or no granted mouse
   } finally {
     connecting = false;
     // On Windows one plug-in fires a connect event per collection, so one may arrive mid-attempt.
@@ -207,10 +395,11 @@ async function connect(open) {
 
 async function start(dev) {
   device = dev;
-  dev.addEventListener('waiting', () => { if (dev === device) setStatus(WAITING); });
+  dev.addEventListener('waiting', () => { if (dev === device && !polling) say('warn', 'mouse', WAITING); });
   // The mouse has no USB serial number, so Chrome forgets the permission on unplug: a replug needs a Connect click.
   dev.addEventListener('disconnect', () => { if (dev === device) detach('Disconnected. Plug the mouse back in, then click Connect.'); });
-  setStatus('Connecting…');
+  stripStatus('connecting');
+  showView('loading');
   try {
     ({ errors } = await dev.readSettings());
     firmware = await dev.readVersion();
@@ -218,7 +407,10 @@ async function start(dev) {
   } catch (error) {
     if (dev !== device) return; // unplugged while reading
     // ponytail: no retry button; after a failed first read the page is back to "not connected" and Connect tries again.
-    detach(error.message);
+    morph(() => {
+      detach();
+      fail(error.message);
+    });
     await dev.close();
     return;
   }
@@ -227,20 +419,26 @@ async function start(dev) {
   $('firmware').textContent = firmware;
   controls.disabled = false;
   render();
-  setStatus('Connected');
+  showView('settings');
+  morph(() => {
+    stripStatus('ready');
+    hideMessage(); // a stale error or waiting hint from this attempt
+  });
   pollTimer = setInterval(() => {
     if (document.visibilityState === 'visible') pollBattery(dev);
   }, POLL_MS);
 }
 
 async function pollBattery(dev) {
+  polling = true; // a sleeping mouse fires `waiting` during the poll; that is not news
   try {
     const battery = await dev.readBattery();
     if (dev === device) $('battery').textContent = batteryText(battery);
   } catch {
     // ponytail: a failed background read is silent; the next action the user takes reports the problem.
+  } finally {
+    polling = false;
   }
-  if (dev === device && statusText.textContent === WAITING) setStatus('Connected');
 }
 
 // Re-reads everything: the mouse's own DPI button can change the active stage while the page is hidden.
@@ -252,9 +450,8 @@ async function refresh(dev) {
     errors = read.errors;
     $('battery').textContent = batteryText(battery);
     render();
-    setStatus('Connected');
   } catch (error) {
-    if (dev === device) setStatus(error.message);
+    if (dev === device) fail(error.message);
   }
 }
 
@@ -269,17 +466,18 @@ function readControl(el, field) {
   if (el.type === 'checkbox') return el.checked;
   if (el.type === 'color') return el.value;
   if (field.options) return field.options.find(([human]) => String(human) === el.value)?.[0];
-  return Number(el.value); // number input, numeric select, radio
+  return Number(el.value); // number input, numeric select, stage count radio
 }
 
-// Writes one setting. The control is disabled while the write is pending, then redrawn from what the mouse reports.
+// Writes one setting. el is the control, or a button group's fieldset. It is disabled while the write is pending,
+// then redrawn from what the mouse reports.
 async function save(el, key, value) {
   const dev = device;
-  const hadFocus = document.activeElement === el;
+  const hadFocus = el.contains(document.activeElement);
   pending.add(el);
   el.disabled = true;
-  setStatus('Saving…');
-  let message = 'Saved';
+  showSave('saving');
+  let message = null;
   try {
     await dev.writeSetting(key, value);
   } catch (error) {
@@ -289,14 +487,18 @@ async function save(el, key, value) {
   el.disabled = false;
   if (dev !== device) return;
   render();
-  if (message !== 'Saved' || !pending.size) setStatus(message); // not "Saved" while another write is still going
-  if (hadFocus) el.focus(); // disabling dropped the focus
+  if (message) fail(message);
+  else if (!pending.size) showSave('saved'); // not "Saved" while another write is still going
+  // Disabling dropped the focus; render() rebuilt a group's radios. "Use stage 1" hides its banner, so stage 1's radio takes over.
+  if (hadFocus) (el.closest('[hidden]') ? radios[0] : el.querySelector('input:checked') ?? el).focus();
 }
 
 controls.addEventListener('change', (event) => {
   const el = event.target;
-  const key = el.dataset.key;
-  if (key && device) save(el, key, readControl(el, fieldOf(key)));
+  const group = el.closest('.seg') ?? el; // a radio of a button group saves through its fieldset
+  const key = group.dataset.key;
+  if (key === 'dpiStageCount') morphCount = !el.matches(':focus-visible'); // the write disables the group, so ask now
+  if (key && device) save(group, key, readControl(el, fieldOf(key)));
 });
 
 $('use-stage-1').addEventListener('click', (event) => save(event.currentTarget, 'dpiActiveStage', 0));
@@ -317,30 +519,48 @@ $('export').addEventListener('click', () => {
     const backup = toBackup(device.settings, { firmware, connection: device.connection, now });
     // The en-CA locale formats a date as YYYY-MM-DD in local time.
     download(`hypernova-settings-${now.toLocaleDateString('en-CA')}.json`, JSON.stringify(backup, null, 2));
-    setStatus('Settings exported');
+    done('Settings exported');
   } catch (error) {
-    setStatus(error.message);
+    fail(error.message);
   }
 });
 
 // The settings an import would change, in FIELDS order. parsed holds only the keys it accepted.
 const changesFor = (current, parsed) => diffSettings(current, { ...current, ...parsed });
 
+const importHint = $('import-line').textContent; // the row description while no file is under review
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const span = (textContent, className) => Object.assign(document.createElement('span'), { textContent, className });
+
+// Closes the review panel and forgets the pending import.
+function closePlan() {
+  const hadFocus = $('import-panel').contains(document.activeElement);
+  plan = null;
+  $('import-panel').hidden = true;
+  $('import-line').textContent = importHint;
+  if (hadFocus) $('import-file').focus(); // the panel held the focus
+}
+
 // Opens the review panel for `plan`: what applying it would change in the mouse's current settings.
 function showPlan(current) {
-  const { keys, parsed, skipped } = plan;
-  $('import-changes').replaceChildren(...(keys.length
-    ? keys.map((key) => li(`${LABELS[key]}: ${show(key, getSetting(current, key))} → ${show(key, getSetting(parsed, key))}`))
-    : [li('No differences from the current settings.')]));
+  const { keys, parsed, skipped, name } = plan;
+  $('import-line').textContent = name;
+  $('import-heading').textContent = keys.length ? `${plural(keys.length, 'change')} to apply` : 'No differences from the current settings.';
+  $('import-changes').hidden = !keys.length;
+  $('import-changes').replaceChildren(...keys.map((key) => {
+    const row = document.createElement('li');
+    row.append(span(LABELS[key]), span(show(key, getSetting(current, key)), 'was'), part('arrow'), span(show(key, getSetting(parsed, key)), 'now'));
+    return row;
+  }));
   $('import-skipped').replaceChildren(...skipped.map(({ key, reason }) => li(`${LABELS[key]}: ${reason}`)));
   $('import-skipped-box').hidden = !skipped.length;
+  $('import-apply').textContent = `Restore ${plural(keys.length, 'setting')}`;
   $('import-apply').disabled = !keys.length;
   $('import-panel').hidden = false;
 }
 
 $('import-file').addEventListener('change', async (event) => {
-  plan = null; // a new file replaces the pending one, even if it turns out to be unusable
-  $('import-panel').hidden = true;
+  closePlan(); // a new file replaces the pending one, even if it turns out to be unusable
   const [file] = event.target.files;
   event.target.value = ''; // so the same file can be chosen again
   if (!file || !device) return;
@@ -349,25 +569,21 @@ $('import-file').addEventListener('change', async (event) => {
     const { settings: parsed, skipped } = parseBackup(await file.text(), { connection: dev.connection });
     const current = dev.settings;
     if (dev !== device) return;
-    plan = { keys: changesFor(current, parsed), parsed, skipped };
+    plan = { keys: changesFor(current, parsed), parsed, skipped, name: file.name };
     showPlan(current);
-    setStatus('Review the changes, then apply or cancel.');
+    if (strip.dataset.kind === 'error') hideMessage(); // a stale "Import failed" next to a valid file
   } catch (error) {
-    setStatus(`Import failed: ${error.message}`); // nothing was written
+    fail(`Import failed: ${error.message}`); // nothing was written
   }
 });
 
-$('import-cancel').addEventListener('click', () => {
-  plan = null;
-  $('import-panel').hidden = true;
-  setStatus('Import cancelled');
-});
+$('import-cancel').addEventListener('click', closePlan);
 
-// Writes the keys, re-reads the mouse and returns the status to show. Never throws.
+// Writes the keys, re-reads the mouse and returns the message to show: [kind, icon, text]. Never throws.
 async function restore(dev, keys, parsed) {
   let problem = null;
   for (const [i, key] of keys.entries()) { // FIELDS order, so the stage count lands before the active stage
-    setStatus(`Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}…`);
+    say('info', 'busy', `Restoring ${i + 1} of ${keys.length}: ${LABELS[key]}…`);
     try {
       await dev.writeSetting(key, getSetting(parsed, key));
     } catch (error) {
@@ -380,22 +596,21 @@ async function restore(dev, keys, parsed) {
   } catch (error) {
     problem ??= error.message;
   }
-  if (problem) return problem;
+  if (problem) return ['error', 'error', problem];
   const differ = changesFor(dev.settings, parsed).filter((key) => keys.includes(key));
   if (differ.length) {
-    const [done, left] = [keys.length - differ.length, differ.length];
-    return `Restored ${done} setting${done === 1 ? '' : 's'}, but ${left} still ${left === 1 ? 'differs' : 'differ'}: ${differ.map((key) => LABELS[key]).join(', ')}.`;
+    const [restored, left] = [keys.length - differ.length, differ.length];
+    return ['error', 'error', `Restored ${restored} setting${restored === 1 ? '' : 's'}, but ${left} still ${left === 1 ? 'differs' : 'differ'}: ${differ.map((key) => LABELS[key]).join(', ')}.`];
   }
-  return `Restored ${keys.length} setting${keys.length === 1 ? '' : 's'}.`;
+  return ['saved', 'check', `Restored ${keys.length} setting${keys.length === 1 ? '' : 's'}`];
 }
 
 $('import-apply').addEventListener('click', async () => {
   const dev = device;
-  const { keys, parsed, skipped } = plan;
-  plan = null;
-  $('import-panel').hidden = true;
-  $('connect').disabled = true; // choosing another mouse would abort the restore
+  const { keys, parsed, skipped, name } = plan;
+  closePlan();
   controls.disabled = true;
+  $('disconnect').disabled = true; // not while the restore writes
   let message;
   try {
     // The mouse can change while the file is under review (its own DPI button), so check the preview against it now.
@@ -405,30 +620,45 @@ $('import-apply').addEventListener('click', async () => {
     if (now.join() === keys.join()) {
       message = await restore(dev, keys, parsed);
     } else {
-      plan = { keys: now, parsed, skipped };
+      plan = { keys: now, parsed, skipped, name };
       showPlan(dev.settings);
-      message = 'The mouse changed since you opened the file. Review the updated changes and apply again.';
+      message = ['warn', 'alert', 'The mouse changed since you opened the file. Review the changes and restore again.'];
     }
   } catch (error) {
-    message = error.message;
-  } finally {
-    $('connect').disabled = false;
+    message = ['error', 'error', error.message];
   }
   if (dev !== device) return;
   controls.disabled = false;
+  $('disconnect').disabled = false;
   render();
-  setStatus(message);
+  say(...message);
+});
+
+$('disconnect').addEventListener('click', async () => {
+  const dev = device;
+  detach(); // before close(), so the disconnect event finds no matching device and shows no unplug message
+  await dev.close().catch((error) => console.warn('Could not close the mouse:', error));
 });
 
 // ---- Start ----
 
 if (!isSecureContext || !('hid' in navigator)) {
-  $('unsupported').textContent = isSecureContext
-    ? 'This app needs a Chromium-based desktop browser such as Chrome, Edge, Opera, Brave or Arc.'
-    : 'This page must be opened over HTTPS.';
-  $('unsupported').hidden = false;
-  $('device-bar').hidden = true;
-  $('main').hidden = true;
+  if (!isSecureContext) {
+    $('h-unsupported').textContent = 'Open this page over HTTPS';
+    $('unsupported').querySelector('p').textContent = 'The browser only allows WebHID on secure pages.';
+  }
+  $('copy-link').hidden = !navigator.clipboard;
+  $('copy-link').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+    } catch (error) {
+      return console.warn('Could not copy the link:', error);
+    }
+    $('copy-label').textContent = 'Link copied';
+    setTimeout(() => { $('copy-label').textContent = 'Copy page link'; }, 2000);
+  });
+  strip.hidden = true;
+  showView('unsupported');
 } else {
   render(); // fills the selects before the first connection
   $('connect').addEventListener('click', () => connect(() => Hypernova.request()));
